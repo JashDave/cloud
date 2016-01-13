@@ -1,47 +1,60 @@
-//***************************************
+// **********************************************************************************
 // * Took help from https://systembash.com/a-simple-go-tcp-server-and-tcp-client/
 // * edited by Jash Dave
-//
+// **********************************************************************************
 
 package main
 
 import "net"
 import "fmt"
 import "bufio"
-import "strings" // only needed below for sample processing
+import "strings" 
 
-func main() {
+func doWrite(params []string, conn net.Conn) {
+	fmt.Println("Do write")
+}
+
+func doRead(params []string, conn net.Conn) {
+	fmt.Println("Do Read")
+}
+
+func doCAS(params []string, conn net.Conn) {
+	fmt.Println("Do CAS")
+}
+
+func doDelete(params []string, conn net.Conn) {
+	fmt.Println("Do Delete")
+}
+
+
+func serverMain() {
 
   fmt.Println("Launching server...")
-
-  // listen on all interfaces
-  ln, _ := net.Listen("tcp", ":8081")
-
-  // accept connection on port
+  ln, _ := net.Listen("tcp", ":8080")
   conn, _ := ln.Accept()
 
-  // run loop forever (or until ctrl-c)
   for {
-    // will listen for message to process ending in newline (\n)
     message, _ := bufio.NewReader(conn).ReadString('\n')
-    // output message received
     fmt.Print("Message Received:", string(message))
-    // sample process for string received
+    var commandline []string = strings.SplitAfter(message, " ")
+    fmt.Printf("%q  \n",commandline)
+    switch commandline[0] {
+	case "write ":
+		doWrite(commandline, conn)
+	case "read ":
+		doRead(commandline, conn)
+	case "cas ":
+		doCAS(commandline, conn)
+	case "delete ":
+		doDelete(commandline, conn)
+	default:
+		fmt.Printf("ERR_INTERNAL\r\n")
+	}
     newmessage := strings.ToUpper(message)
-    // send new string back to client
     conn.Write([]byte(newmessage + "\n"))
   }
 }
 
-
-
-
-func serverMain() 
-{
-   
-}
-
-func main() 
-{
+func main() {
   serverMain()
 }
