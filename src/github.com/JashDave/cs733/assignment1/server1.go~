@@ -1,0 +1,9 @@
+func serverMain() 
+{
+   
+}
+
+func main() 
+{
+  serverMain()
+}
