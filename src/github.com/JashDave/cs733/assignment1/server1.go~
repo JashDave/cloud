@@ -280,13 +280,8 @@ func doCAS(str_data string, conn net.Conn) (string,error){
 		return "",errors.New("Version mismatch")
 	}
 
-//---Doubt---
 	creation_time := getCurrentTimeSeconds()
-	if l!=4 {
-		//If exptime not provided then preserve previos exptime
-		creation_time = fw.Creation_time
-		exptime = fw.Exptime
-	}
+
 	err = writeToFile(data_dir,filename,version,numbytes,creation_time,exptime,[]byte(contents))
 	if err != nil {
 		conn.Write([]byte("ERR_INTERNAL\r\n"))
@@ -305,7 +300,7 @@ func doDelete(str_data string, conn net.Conn) (string,error) {
 	}
 
 //---Not necessary to check----
-	if strings.Index(str_arr[0],"0") != -1 {
+	if strings.Index(str_arr[0]," ") != -1 {
 		conn.Write([]byte("ERR_CMD_ERR\r\n"))
 		return "",errors.New("Spaces in filename")
 	}
