@@ -2,7 +2,7 @@
 // * Took help from https://systembash.com/a-simple-go-tcp-server-and-tcp-client/
 // * edited by Jash Dave
 // *********************************************************************************
-// Check for numbytes to be added
+
 package main
 
 import "os"
@@ -119,7 +119,7 @@ func doWrite(str_data string, conn net.Conn) (string,error) {
 		exptime, err = strconv.ParseUint(params[2],10,64)
 		if err != nil {
 			conn.Write([]byte("ERR_CMD_ERR\r\n"))
-			fmt.Println(err)
+			//fmt.Println(err)
 			return "",errors.New("Invalid exptime")
 		}
 	}
@@ -198,6 +198,7 @@ func doRead(str_data string, conn net.Conn) (string,error) {
 	data = data + strconv.FormatUint(fw.Numbytes,10) + " "
 	data = data + strconv.FormatUint(fw.Exptime,10) + " \r\n"
 	data = data + string(fw.Contents) + "\r\n"
+//fmt.Println("S Send:",data)
 	conn.Write([]byte(data))
 	return remaining,nil
 }
@@ -325,6 +326,7 @@ func doDelete(str_data string, conn net.Conn) (string,error) {
 
 func handleClient(conn net.Conn) {
 str_data := ""
+i := 1
 for {
 	if len(str_data) == 0 {
 	l := 0
@@ -338,6 +340,8 @@ for {
 	}
 	}
 
+//fmt.Println("DATA ",i,":",str_data)
+i++
 	str_arr := strings.SplitN(str_data," ",2)
 	if len(str_arr) != 2 {
 		//conn.Write([]byte("ERR_INTERNAL\r\n"))  //?????
@@ -348,13 +352,13 @@ for {
 
     switch command {
 	case "write":
-fmt.Println("Do Write")
+//fmt.Println("Do Write")
 		str_data,_ = doWrite(str_data, conn)
 	case "read":
-fmt.Println("Do Read")
+//fmt.Println("Do Read")
 		str_data,_ = doRead(str_data, conn)
 	case "cas":
-fmt.Println("Do CAS")
+//fmt.Println("Do CAS")
 		str_data,_ = doCAS(str_data, conn)
 	case "delete":
 fmt.Println("Do Delete")
@@ -364,7 +368,7 @@ fmt.Println("Do Delete")
 		conn.Write([]byte("ERR_INTERNAL\r\n"))
 	}
 
-fmt.Println("Remaining : ",str_data)
+//fmt.Println("Remaining : ",str_data)
   }
 
 }
@@ -373,12 +377,13 @@ fmt.Println("Remaining : ",str_data)
 func serverMain() {
 
   data_dir = os.Getenv("GOPATH")+"/cs733_data_files/assign1/"
-  fmt.Println("Launching server...")
+  //fmt.Println("Launching server...")
   ln, _ := net.Listen("tcp", ":8080")
   for {
 	conn, err := ln.Accept()
 	if(err != nil) {
-	  fmt.Printf("%v",err)
+	  //fmt.Printf("%v",err)
+	  continue
 	}
 	go handleClient(conn)
   }
