@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"sync"
 )
 
 // Simple serial check of getting and setting
@@ -212,6 +213,48 @@ func TestDelete(t *testing.T) {
 	fmt.Fprintf(conn, "delete %v\r\n", name)
 	scanner.Scan()
 	expect(t, scanner.Text(), "OK")
+}
+
+func TestConcurrency(t *testing.T) {	
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i+=10 {
+		conn, err := net.Dial("tcp", "localhost:8080")
+		if err != nil {
+		t.Error(err.Error())
+		}
+		wg.Add(1)
+		go write10Times(i,conn,&wg)
+	}
+	wg.Wait()
+	
+	conn, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		t.Error(err.Error())
+	}
+	fmt.Fprintf(conn, "read concurrent.txt\r\n")
+	time.Sleep(20 * time.Millisecond)
+	resp := string(readAll(conn))
+	t1 := strings.SplitN(resp, "\r\n", 2)
+	arr := strings.Split(t1[0], " ")
+	expect(t, arr[0], "CONTENTS")
+	resp = t1[1]
+	if(resp!="9\r\n" && resp!="19\r\n" && resp!="29\r\n" && resp!="39\r\n" && resp!="49\r\n" && resp!="59\r\n" && resp!="69\r\n" && resp!="79\r\n" && resp!="89\r\n" && resp!="99\r\n") {
+		t.Error("Concurrency test failed\r\nCONTENTS:"+resp)
+	}
+	
+}
+
+func write10Times(n int,conn net.Conn,wg *sync.WaitGroup) {
+	defer wg.Done()
+	for i:=0; i<10; i++ {
+		name := "concurrent.txt"
+		contents := strconv.FormatUint(uint64(i+n), 10) 
+		exptime := 0
+		scanner := bufio.NewScanner(conn)
+		fmt.Fprintf(conn, "write %v %v %v\r\n%v\r\n", name, len(contents), exptime, contents)
+		scanner.Scan()
+		_ = scanner.Text()
+	}
 }
 
 // Useful testing function
