@@ -292,7 +292,7 @@ func write10Times(n int,conn net.Conn,wg *sync.WaitGroup) {
 		scanner := bufio.NewScanner(conn)
 		fmt.Fprintf(conn, "write %v %v %v\r\n%v\r\n", name, len(contents), exptime, contents)
 		scanner.Scan()
-		v := scanner.Text()
+		_ = scanner.Text()
 	}
 }
 
@@ -306,7 +306,7 @@ func cas10Times(n int,conn net.Conn,wg *sync.WaitGroup,version string) {
 		scanner := bufio.NewScanner(conn)
 		fmt.Fprintf(conn, "cas %v %v %v %v\r\n%v\r\n", name, version, len(contents), exptime, contents)
 		scanner.Scan()
-		v := scanner.Text()
+		_ = scanner.Text()
 	}
 }
 
