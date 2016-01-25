@@ -8,6 +8,7 @@ package main
 import "os"
 import "net"
 //import "fmt"
+import "sync"
 import "time"
 import "bufio"
 import "errors"
@@ -17,6 +18,12 @@ import "io/ioutil"
 import "encoding/json"
 
 var data_dir string
+
+type ConcurrencyManager struct {
+	mx *sync.RWMutex
+}
+
+var cmMap map[string]ConcurrencyManager
 
 type FileWrapper struct {
 	Filename      string
@@ -32,6 +39,13 @@ func getCurrentTimeSeconds() uint64 {
 }
 
 func readFromFile(filename string) (FileWrapper, error) {
+	if val,valid := cmMap[filename]; valid {
+		val.mx.Lock()
+	} else {
+		cmMap[filename] = ConcurrencyManager{new(sync.RWMutex)}
+		cmMap[filename].mx.Lock()
+	}
+	defer cmMap[filename].mx.Unlock()
 	fw := new(FileWrapper)
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -45,6 +59,15 @@ func readFromFile(filename string) (FileWrapper, error) {
 }
 
 func writeToFile(data_dir, filename string, version, numbytes, creation_time, exptime uint64, contents []byte) error {
+	fn := data_dir+filename
+	if val,valid := cmMap[fn]; valid {
+		val.mx.Lock()
+	} else {
+		cmMap[fn] = ConcurrencyManager{new(sync.RWMutex)}
+		cmMap[fn].mx.Lock()
+	}
+	defer cmMap[fn].mx.Unlock()
+
 	fw := FileWrapper{filename, version, numbytes, creation_time, exptime, contents}
 	data, err := json.Marshal(fw)
 	if err != nil {
@@ -159,7 +182,7 @@ func doRead(str_data string, conn net.Conn) (string, error) {
 	}
 
 	//---Not necessary to check----
-	if strings.Index(str_arr[0], "0") != -1 {
+	if strings.Index(str_arr[0], " ") != -1 {
 		conn.Write([]byte("ERR_CMD_ERR\r\n"))
 		return "", errors.New("Spaces in filename")
 	}
@@ -354,7 +377,7 @@ func handleClient(conn net.Conn) {
 }
 
 func serverMain() {
-
+	cmMap = make(map[string]ConcurrencyManager)
 	data_dir = os.Getenv("GOPATH") + "/cs733_data_files/assign1/"
 	//fmt.Println("Launching server...")
 	ln, _ := net.Listen("tcp", ":8080")

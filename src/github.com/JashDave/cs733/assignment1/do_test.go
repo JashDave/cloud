@@ -17,7 +17,22 @@ import (
 	"sync"
 )
 
-// Simple serial check of getting and setting
+
+func readAllFromConn(conn net.Conn) []byte {
+	var message []byte
+	tbuf := make([]byte, 256)
+	creader := bufio.NewReader(conn)
+	for {
+		conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+		n, err := creader.Read(tbuf)
+		message = append(message, tbuf[:n]...)
+		if err != nil {
+			return message
+		}
+	}
+	return message
+}
+
 func TestWrite(t *testing.T) {
 	go serverMain()
 	time.Sleep(1 * time.Second)
@@ -109,7 +124,7 @@ func TestRead(t *testing.T) {
 	version := int64(ver)
 	fmt.Fprintf(conn, "read %v\r\n", name)
 	time.Sleep(20 * time.Millisecond)
-	resp = string(readAll(conn))
+	resp = string(readAllFromConn(conn))
 	t1 := strings.SplitN(resp, "\r\n", 2)
 	arr = strings.Split(t1[0], " ")
 	expect(t, arr[0], "CONTENTS")
@@ -215,7 +230,8 @@ func TestDelete(t *testing.T) {
 	expect(t, scanner.Text(), "OK")
 }
 
-func TestConcurrency(t *testing.T) {	
+func TestConcurrency(t *testing.T) {
+//Concurrent Write	
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i+=10 {
 		conn, err := net.Dial("tcp", "localhost:8080")
@@ -233,10 +249,33 @@ func TestConcurrency(t *testing.T) {
 	}
 	fmt.Fprintf(conn, "read concurrent.txt\r\n")
 	time.Sleep(20 * time.Millisecond)
-	resp := string(readAll(conn))
+	resp := string(readAllFromConn(conn))
 	t1 := strings.SplitN(resp, "\r\n", 2)
 	arr := strings.Split(t1[0], " ")
 	expect(t, arr[0], "CONTENTS")
+	resp = t1[1]
+	if(resp!="9\r\n" && resp!="19\r\n" && resp!="29\r\n" && resp!="39\r\n" && resp!="49\r\n" && resp!="59\r\n" && resp!="69\r\n" && resp!="79\r\n" && resp!="89\r\n" && resp!="99\r\n") {
+		t.Error("Concurrency test failed\r\nCONTENTS:"+resp)
+	}
+
+//Concurrent CAS
+	version := arr[1]
+	for i := 0; i < 100; i+=10 {
+		conn, err := net.Dial("tcp", "localhost:8080")
+		if err != nil {
+		t.Error(err.Error())
+		}
+		wg.Add(1)
+		go cas10Times(i,conn,&wg,version)
+	}
+	wg.Wait()
+	fmt.Fprintf(conn, "read concurrent.txt\r\n")
+	time.Sleep(50 * time.Millisecond)
+	resp = string(readAllFromConn(conn))
+	t1 = strings.SplitN(resp, "\r\n", 2)
+	arr = strings.Split(t1[0], " ")
+	expect(t, arr[0], "CONTENTS")
+	expect(t, arr[1], version)
 	resp = t1[1]
 	if(resp!="9\r\n" && resp!="19\r\n" && resp!="29\r\n" && resp!="39\r\n" && resp!="49\r\n" && resp!="59\r\n" && resp!="69\r\n" && resp!="79\r\n" && resp!="89\r\n" && resp!="99\r\n") {
 		t.Error("Concurrency test failed\r\nCONTENTS:"+resp)
@@ -253,7 +292,21 @@ func write10Times(n int,conn net.Conn,wg *sync.WaitGroup) {
 		scanner := bufio.NewScanner(conn)
 		fmt.Fprintf(conn, "write %v %v %v\r\n%v\r\n", name, len(contents), exptime, contents)
 		scanner.Scan()
-		_ = scanner.Text()
+		v := scanner.Text()
+	}
+}
+
+
+func cas10Times(n int,conn net.Conn,wg *sync.WaitGroup,version string) {
+	defer wg.Done()
+	for i:=0; i<10; i++ {
+		name := "concurrent.txt"
+		contents := strconv.FormatUint(uint64(i+n), 10) 
+		exptime := 0
+		scanner := bufio.NewScanner(conn)
+		fmt.Fprintf(conn, "cas %v %v %v %v\r\n%v\r\n", name, version, len(contents), exptime, contents)
+		scanner.Scan()
+		v := scanner.Text()
 	}
 }
 
