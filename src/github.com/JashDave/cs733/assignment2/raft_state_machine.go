@@ -6,9 +6,9 @@
 
  * Implemented by Jash Dave for course CS-733 at IIT-Bombay
 
- * Assumes all functions are atomic i.e. StateMachine can only be stoped after completion of function in progress
+ * Assumes all functions are atomic i.e. StateMachine can only be stoped after completion of function in progress.
+ * stop flag has race condition but it is Ok 
 */
-
 package raft
 
 import (
@@ -180,15 +180,22 @@ func InitStateMachine(id uint64, peers []uint64, majority uint64, electionTimeou
 	sm.eventChan = make(chan Event,1000)
 	sm.processMutex = make(chan int,1)
 	sm.processMutex <- 1
-	sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 	return sm
 }
 
 func (sm *StateMachine) Start() (error){
 	select {
 		case <-sm.processMutex :
+/*
+			//flush event channel b4 start
+			close(sm.actionChan)
+			close(sm.eventChan)
+			sm.actionChan = make(chan Action,1000)
+			sm.eventChan = make(chan Event,1000)
+*/
 			sm.stop = false
 			go sm.processEvents()
+			sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 		case <-time.After(1000 * time.Millisecond) :
 			return errors.New("Request timeout.")
 	}
@@ -275,14 +282,14 @@ func (sm *StateMachine) Timeout() {
 
 		case CANDIDATE :
 			//set back for some random time [T, 2T] where T is election timeout preiod and restart election
-			r := rand.New(rand.NewSource(29182))
-			backoff := r.Int63n(sm.electionTimeout.Nanoseconds()*1000)
+			r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+			backoff := r.Int63n(sm.electionTimeout.Nanoseconds()/1000)
 			sm.state = FOLLOWER
 			for sm.changeVotedForTo(uint64(0))!=nil {
 				//Keep retrying
 			} //?? ask to sir //Assumes 0 is invalid peerId
 			sm.leaderId = 0
-			sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout+time.Duration(backoff)*time.Millisecond)//? type sol: init
+			sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout+time.Duration(backoff)*1000)//? type sol: init
 			
 		case FOLLOWER :
 //? Reinitialize variables?
@@ -390,7 +397,7 @@ func (sm *StateMachine) appendEntryHelper(prevLogIndex uint64, prevLogTerm uint6
 func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId uint64, forIndex uint64) {
 	switch sm.state {
 		case LEADER :
-			if(success) {
+			if(success) && term==sm.currentTerm {
 				sm.nextIndex[sm.peerIndex[senderId]]++
 				ni := sm.nextIndex[sm.peerIndex[senderId]]
 				sm.matchIndex[sm.peerIndex[senderId]] = ni-1 //? ask
@@ -420,6 +427,7 @@ func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId ui
 				for sm.changeVotedForTo(uint64(0))!=nil {
 					//Keep retrying
 				} //? verify
+//?? Negetive Commit
 				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
 			} else { 
 //failure is due to sender is backing try sending previous entry
@@ -434,6 +442,18 @@ func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId ui
 
 //------------------------------------------------------------------------------
 func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex uint64, lastLogTerm uint64) {
+	checkUpToDateAndVote := func() {
+		if sm.currentTerm == term && sm.votedFor == 0  && sm.logIndex-1 <= lastLogIndex && sm.log[sm.logIndex-1].term <= lastLogTerm {
+				for sm.changeVotedForTo(candidateId)!=nil {
+					//Keep retrying
+				}  //? anything else? sol : no
+				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",true)
+				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)	
+			} else {
+				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
+				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
+			}
+	}
 	switch sm.state {
 		case LEADER :
 			if sm.currentTerm < term { //I am out of date go to follower mode
@@ -444,8 +464,7 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 				for sm.changeVotedForTo(candidateId)!=nil {
 					//Keep retrying
 				} //? anything else? Sol: no
-				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",true)
-				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
+				checkUpToDateAndVote()
 			} else {
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
 				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
@@ -460,33 +479,22 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 				for sm.changeVotedForTo(candidateId)!=nil {
 					//Keep retrying
 				} //? anything else? Sol : no
-				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",true)
-				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
+				checkUpToDateAndVote()
 			} else {
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
 				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
 			}
 		case FOLLOWER : 
 //? copy from above + CHANGED
-			if sm.currentTerm < term { //I am out of date go to follower mode
+			if sm.currentTerm < term { //I am out of date
 				for sm.changeCurrentTermTo(term)!=nil {
 					//Keep retrying
 				}
-				for sm.changeVotedForTo(candidateId)!=nil {
+				for sm.changeVotedForTo(0)!=nil {
 					//Keep retrying
 				}  //? anything else? sol : no
-				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",true)
-				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
-			} else if sm.currentTerm == term && sm.votedFor == 0 {
-				for sm.changeVotedForTo(candidateId)!=nil {
-					//Keep retrying
-				}  //? anything else? sol : no
-				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",true)
-				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)	
-			} else {
-				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
-				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)
 			}
+			checkUpToDateAndVote()			
 	}
 }
 
