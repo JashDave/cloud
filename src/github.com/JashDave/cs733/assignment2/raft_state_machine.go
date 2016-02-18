@@ -9,10 +9,10 @@
  * Assumes all functions are atomic i.e. StateMachine can only be stoped after completion of function in progress.
  * stop flag has race condition but it is Ok 
 */
-package raft
+package assignment2
 
 import (
-	"fmt"
+//	"fmt"
 	"time"
 	"math/rand"
 	"errors"
@@ -50,33 +50,6 @@ type Action struct{
 }
 
 
-func CreateEvent(name string, params ...interface{}) (Event) {
-	e := new(Event)
-	e.data = make(map[string]interface{})
-	e.name=name
-	l := len(params)/2
-	for i:=0;i<l;i++ {
-		key,_ := params[2*i].(string)
-		e.data[key]=params[2*i+1]
-	}
-	return *e
-}
-
-
-func CreateAction(name string, params ...interface{}) (Action) {
-	a := new(Action)
-	a.data = make(map[string]interface{})
-	a.name=name
-	l := len(params)/2
-	for i:=0;i<l;i++ {
-		key,_ := params[2*i].(string)
-		a.data[key]=params[2*i+1]
-	}
-	return *a
-}
-
-
-
 type StateMachine struct {
 	//To be supplied by RAFT node during initialization
 	id uint64
@@ -104,48 +77,42 @@ type StateMachine struct {
 }
 
 
+//------------------------Helper/Wrapper Functions-----------------------
+
+func CreateEvent(name string, params ...interface{}) (Event) {
+	e := new(Event)
+	e.data = make(map[string]interface{})
+	e.name=name
+	l := len(params)/2
+	for i:=0;i<l;i++ {
+		key,_ := params[2*i].(string)
+		e.data[key]=params[2*i+1]
+	}
+	return *e
+}
+
+
+func CreateAction(name string, params ...interface{}) (Action) {
+	a := new(Action)
+	a.data = make(map[string]interface{})
+	a.name=name
+	l := len(params)/2
+	for i:=0;i<l;i++ {
+		key,_ := params[2*i].(string)
+		a.data[key]=params[2*i+1]
+	}
+	return *a
+}
+
+
+//--------------------Functions ment to be accessable by upper layer on StateMachine------------------
+
 func (sm *StateMachine) GetEventChannel() (*(chan Event)) {
 	return &sm.eventChan
 }
 
 func (sm *StateMachine) GetActionChannel() (*(chan Action)) {
 	return &sm.actionChan
-}
-
-/* //depricated
-func (sm *StateMachine) AppendEvents(events []Event) {
-	for _,e := range events {
-		sm.eventChan <- e
-	}
-}
-*/
-
-func (sm *StateMachine) processEvents() {
-	for !sm.stop {
-fmt.Println("Waiting for event...")
-		select {
-		case e := <- sm.eventChan :
-fmt.Println("SM Event :",e)
-			switch e.name {
-				case "Append":
-					sm.Append(e.data["data"].([]byte),e.data["uid"].(uint64))
-				case "Timeout":
-					sm.Timeout()
-				case "AppendEntriesReq":
-					sm.AppendEntriesReq(e.data["term"].(uint64), e.data["leaderId"].(uint64), e.data["prevLogIndex"].(uint64), e.data["prevLogTerm"].(uint64), e.data["entries"].(LogEntry), e.data["leaderCommit"].(uint64))
-				case "AppendEntriesResp":
-					sm.AppendEntriesResp(e.data["term"].(uint64), e.data["success"].(bool), e.data["senderId"].(uint64), e.data["forIndex"].(uint64))
-				case "VoteReq":
-					sm.VoteReq(e.data["term"].(uint64), e.data["candidateId"].(uint64), e.data["lastLogIndex"].(uint64), e.data["lastLogTerm"].(uint64))
-				case "VoteResp":
-					sm.VoteResp(e.data["term"].(uint64), e.data["voteGranted"].(bool))
-			}
-		//case <- time.After(200*time.Millisecond) : //alternate fake event
-			//Go check stop
-		}
-	}	
-	sm.processMutex <- 1
-fmt.Println("Stoped")
 }
 
 
@@ -167,6 +134,7 @@ func InitStateMachine(id uint64, peers []uint64, majority uint64, electionTimeou
 	sm.state = FOLLOWER
 	sm.leaderId = 0
 	sm.logIndex = uint64(len(sm.log))
+
 	sm.commitIndex = 0
 	sm.nextIndex = make([]uint64,len(sm.peers))
 	sm.matchIndex = make([]uint64,len(sm.peers))
@@ -187,7 +155,7 @@ func (sm *StateMachine) Start() (error){
 	select {
 		case <-sm.processMutex :
 /*
-			//flush event channel b4 start
+			//flush channels b4 start
 			close(sm.actionChan)
 			close(sm.eventChan)
 			sm.actionChan = make(chan Action,1000)
@@ -196,7 +164,7 @@ func (sm *StateMachine) Start() (error){
 			sm.stop = false
 			go sm.processEvents()
 			sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
-		case <-time.After(1000 * time.Millisecond) :
+		case <-time.After(100 * time.Millisecond) :
 			return errors.New("Request timeout.")
 	}
 	return nil
@@ -204,9 +172,59 @@ func (sm *StateMachine) Start() (error){
 
 func (sm *StateMachine) Stop() {
 	sm.stop = true
-	//If there are no event in eventChan then processEvent may wait on select and will not check stop flag untill a new event comes. So generate a fake event
+	//If there are no event in eventChan then processEvent may wait on select
+	//and will not check stop flag untill a new event comes. So generate a fake event.
 	sm.eventChan <- CreateEvent("Fake Event")
 }
+
+
+
+
+/* //depricated
+func (sm *StateMachine) AppendEvents(events []Event) {
+	for _,e := range events {
+		sm.eventChan <- e
+	}
+}
+*/
+
+//-----------------------Internal Functions of StateMachine---------------------------
+/*
+ * 
+ */
+
+
+func (sm *StateMachine) processEvents() {
+	for !sm.stop {
+		sm.processEvent()
+	}	
+	sm.processMutex <- 1
+//fmt.Println("Stoped");
+}
+
+
+func (sm *StateMachine) processEvent() {
+	select {
+		case e := <- sm.eventChan :
+			switch e.name {
+				case "Append":
+					sm.Append(e.data["data"].([]byte),e.data["uid"].(uint64))
+				case "Timeout":
+					sm.Timeout()
+				case "AppendEntriesReq":
+					sm.AppendEntriesReq(e.data["term"].(uint64), e.data["leaderId"].(uint64), e.data["prevLogIndex"].(uint64), e.data["prevLogTerm"].(uint64), e.data["entries"].(LogEntry), e.data["leaderCommit"].(uint64))
+				case "AppendEntriesResp":
+					sm.AppendEntriesResp(e.data["term"].(uint64), e.data["success"].(bool), e.data["senderId"].(uint64), e.data["forIndex"].(uint64))
+				case "VoteReq":
+					sm.VoteReq(e.data["term"].(uint64), e.data["candidateId"].(uint64), e.data["lastLogIndex"].(uint64), e.data["lastLogTerm"].(uint64))
+				case "VoteResp":
+					sm.VoteResp(e.data["term"].(uint64), e.data["voteGranted"].(bool))
+			}
+
+		}
+}
+
+
 
 func (sm *StateMachine) addToLog(entry LogEntry,index uint64) (error) {
 	sm.actionChan <- CreateAction("LogStore", "term",sm.currentTerm, "index",index, "uid",entry.uid, "data",entry.data)
@@ -220,17 +238,11 @@ func (sm *StateMachine) addToLog(entry LogEntry,index uint64) (error) {
 	return nil
 }
 
-func (sm *StateMachine) changeCurrentTermTo(term uint64) (error) {
-	sm.actionChan <- CreateAction("SaveCurrentTerm","currentTerm",term)
-//? wait for state to save
-	sm.currentTerm = term
-	return nil
-}
-
-func (sm *StateMachine) changeVotedForTo(votedFor uint64) (error) {
-	sm.actionChan <- CreateAction("SaveVotedFor","votedFor",votedFor)
+func (sm *StateMachine) saveState(term,votedFor uint64) (error) {
+	sm.actionChan <- CreateAction("SaveState","currentTerm",term,"votedFor",votedFor)
 //? wait for state to save
 	sm.votedFor = votedFor
+	sm.currentTerm = term
 	return nil
 }
 
@@ -241,7 +253,7 @@ func (sm *StateMachine) Append(data []byte, uid uint64) {
 	switch sm.state {
 		case LEADER :
 			//Search if uid is already processed
-			for i:=sm.logIndex;i>0;i-- {
+			for i:=sm.logIndex-1;i>0;i-- {
 				if sm.log[i].uid == uid {
 					if i<=sm.commitIndex {
 						sm.actionChan <- CreateAction("Commit","index",i,"data",sm.log[i].data,"err",nil)			
@@ -253,12 +265,13 @@ func (sm *StateMachine) Append(data []byte, uid uint64) {
 
 			//Save data on Leader
 			entry := LogEntry{sm.currentTerm,uid,data,true}	
-			sm.addToLog(entry,sm.logIndex+1)
+			sm.addToLog(entry,sm.logIndex)
 			//Reset heartbeat timeout
 			sm.actionChan <- CreateAction("Alarm","t",sm.heartbeatTimeout)
+
 			//Send append entries to all
 			for _,p := range sm.peers {
-				event := CreateEvent("AppendEntriesReq", "term",sm.currentTerm, "leaderId",sm.id, "prevLogIndex",sm.logIndex-1, "prevLogTerm",sm.log[sm.logIndex-1].term, "entries",entry, "leaderCommit",sm.commitIndex)
+				event := CreateEvent("AppendEntriesReq", "term",sm.currentTerm, "leaderId",sm.id, "prevLogIndex",sm.logIndex-2, "prevLogTerm",sm.log[sm.logIndex-2].term, "entries",entry, "leaderCommit",sm.commitIndex)
 				sm.actionChan <- CreateAction("Send","peerId",p,"event",event)
 			}
 			
@@ -285,9 +298,9 @@ func (sm *StateMachine) Timeout() {
 			r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 			backoff := r.Int63n(sm.electionTimeout.Nanoseconds()/1000)
 			sm.state = FOLLOWER
-			for sm.changeVotedForTo(uint64(0))!=nil {
-				//Keep retrying
-			} //?? ask to sir //Assumes 0 is invalid peerId
+			if sm.saveState(sm.currentTerm,uint64(0))!=nil {
+				//Problem in saving state
+			}
 			sm.leaderId = 0
 			sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout+time.Duration(backoff)*1000)//? type sol: init
 			
@@ -298,11 +311,9 @@ func (sm *StateMachine) Timeout() {
 			sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 			sm.state = CANDIDATE
 			sm.leaderId = 0
-			for sm.changeCurrentTermTo(sm.currentTerm+1)!=nil {
-				//Keep retrying
+			if sm.saveState(sm.currentTerm+1,sm.id)!=nil {
+				//Problem in saving state
 			}
-
-			sm.votedFor=sm.id
 			sm.voteCount = 1
 			for _,p := range sm.peers {
 				event := CreateEvent("VoteReq", "term",sm.currentTerm, "candidateId",sm.id, "lastLogIndex",sm.logIndex-1, "lastLogTerm",sm.log[sm.logIndex-1].term)
@@ -322,13 +333,11 @@ func (sm *StateMachine) AppendEntriesReq(term uint64, leaderId uint64, prevLogIn
 				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
 			} else { //I am out of date
 				sm.state = FOLLOWER  
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
-				}
 				sm.leaderId = leaderId
-				for sm.changeVotedForTo(leaderId)!=nil {
-					//Keep retrying
-				}  //? verify by sir
+				if sm.saveState(term,leaderId)!=nil {
+					//Problem in saving state
+				}
+
 				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
 				success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
 				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
@@ -338,13 +347,10 @@ func (sm *StateMachine) AppendEntriesReq(term uint64, leaderId uint64, prevLogIn
 			if term >= sm.currentTerm {
 //copy of above
 				sm.state = FOLLOWER  
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
-				}
 				sm.leaderId = leaderId
-				for sm.changeVotedForTo(leaderId)!=nil {
-					//Keep retrying
-				} //? verify
+				if sm.saveState(term,leaderId)!=nil {
+					//Problem in saving state
+				}
 				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
 				success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
 				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
@@ -356,13 +362,10 @@ func (sm *StateMachine) AppendEntriesReq(term uint64, leaderId uint64, prevLogIn
 		case FOLLOWER :
 			if term >= sm.currentTerm {
 //copy of above
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
-				}
 				sm.leaderId = leaderId
-				for sm.changeVotedForTo(leaderId)!=nil {
-					//Keep retrying
-				} //? verify
+				if sm.saveState(term,leaderId)!=nil {
+					//Problem in saving state
+				}
 				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
 				success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
 				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
@@ -413,23 +416,19 @@ func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId ui
 						sm.actionChan <- CreateAction("Commit", "index",ni-1, "data",sm.log[ni-1].data, "err",nil)	
 					}
 				}
-				if ni <= sm.logIndex { // optimize to send bunch of entries
+				if ni < sm.logIndex { // optimize to send bunch of entries
 					event := CreateEvent("AppendEntriesReq", "term",sm.currentTerm, "leaderId",sm.id, "prevLogIndex",ni-1, "prevLogTerm",sm.log[ni-1].term, "entries",sm.log[ni], "leaderCommit",sm.commitIndex)
 					sm.actionChan <- CreateAction("Send", "peerId",senderId, "event",event)
 					}
 			} else if sm.currentTerm < term {
 				//move to follower state
 				sm.state = FOLLOWER //? reset few vars
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
+				if sm.saveState(term,uint64(0))!=nil {
+					//Problem in saving state
 				}
-				sm.leaderId = 0 //dont know
-				for sm.changeVotedForTo(uint64(0))!=nil {
-					//Keep retrying
-				} //? verify
 //?? Negetive Commit
 				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
-			} else { 
+			} else if sm.nextIndex[sm.peerIndex[senderId]] > 1{ 
 //failure is due to sender is backing try sending previous entry
 				sm.nextIndex[sm.peerIndex[senderId]]--
 				ni := sm.nextIndex[sm.peerIndex[senderId]]
@@ -444,9 +443,9 @@ func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId ui
 func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex uint64, lastLogTerm uint64) {
 	checkUpToDateAndVote := func() {
 		if sm.currentTerm == term && sm.votedFor == 0  && sm.logIndex-1 <= lastLogIndex && sm.log[sm.logIndex-1].term <= lastLogTerm {
-				for sm.changeVotedForTo(candidateId)!=nil {
-					//Keep retrying
-				}  //? anything else? sol : no
+				if sm.saveState(sm.currentTerm,candidateId)!=nil {
+					//Problem in saving state
+				}
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",true)
 				sm.actionChan <- CreateAction("Send", "peerId",candidateId, "event",event)	
 			} else {
@@ -458,12 +457,9 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 		case LEADER :
 			if sm.currentTerm < term { //I am out of date go to follower mode
 				sm.state = FOLLOWER
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
+				if sm.saveState(term,candidateId)!=nil {
+					//Problem in saving state
 				}
-				for sm.changeVotedForTo(candidateId)!=nil {
-					//Keep retrying
-				} //? anything else? Sol: no
 				checkUpToDateAndVote()
 			} else {
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
@@ -473,12 +469,9 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 //? copy from above
 			if sm.currentTerm < term { //I am out of date go to follower mode
 				sm.state = FOLLOWER
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
+				if sm.saveState(term,candidateId)!=nil {
+					//Problem in saving state
 				}
-				for sm.changeVotedForTo(candidateId)!=nil {
-					//Keep retrying
-				} //? anything else? Sol : no
 				checkUpToDateAndVote()
 			} else {
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
@@ -487,12 +480,9 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 		case FOLLOWER : 
 //? copy from above + CHANGED
 			if sm.currentTerm < term { //I am out of date
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
+				if sm.saveState(term,uint64(0))!=nil {
+					//Problem in saving state
 				}
-				for sm.changeVotedForTo(0)!=nil {
-					//Keep retrying
-				}  //? anything else? sol : no
 			}
 			checkUpToDateAndVote()			
 	}
@@ -521,12 +511,9 @@ func (sm *StateMachine) VoteResp(term uint64, voteGranted bool) {
 				}
 			} else if term > sm.currentTerm {
 				sm.state = FOLLOWER
-				for sm.changeCurrentTermTo(term)!=nil {
-					//Keep retrying
+				if sm.saveState(term,uint64(0))!=nil {
+					//Problem in saving state
 				}
-				for sm.changeVotedForTo(uint64(0))!=nil {
-					//Keep retrying
-				} 
 				sm.leaderId = 0
 				sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 			}
