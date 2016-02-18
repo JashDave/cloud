@@ -12,7 +12,7 @@
 package assignment2
 
 import (
-	"fmt"
+//	"fmt"
 	"time"
 	"math/rand"
 	"errors"
@@ -199,7 +199,7 @@ func (sm *StateMachine) processEvents() {
 		sm.processEvent()
 	}	
 	sm.processMutex <- 1
-fmt.Println("Stoped");
+//fmt.Println("Stoped");
 }
 
 
@@ -276,7 +276,7 @@ func (sm *StateMachine) Append(data []byte, uid uint64) {
 			}
 			
 		default : 
-			//actionChan <- RedirectClient(leaderId,uid,data?)
+			actionChan <- CreateAction("Redirect","leaderId",sm.leaderId,"uid",uid)
 	}
 }
 
@@ -324,60 +324,33 @@ func (sm *StateMachine) Timeout() {
 
 
 //-------------------------------------------------------------------
-func (sm *StateMachine) AppendEntriesReq(term uint64, leaderId uint64, prevLogIndex uint64, prevLogTerm uint64, entries LogEntry, leaderCommit uint64) {
-	switch sm.state {
-//? all three states are similar -- minimize code
-		case LEADER :
-			if sm.currentTerm > term { //sender is out of date > replay false
-				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",false, "senderId",sm.id, "forIndex",prevLogIndex)
-				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
-			} else { //I am out of date
-				sm.state = FOLLOWER  
-				sm.leaderId = leaderId
-				if sm.saveState(term,leaderId)!=nil {
-					//Problem in saving state
-				}
 
-				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
-				success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
-				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
-				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
-			}
-		case CANDIDATE :
-			if term >= sm.currentTerm {
-//copy of above
-				sm.state = FOLLOWER  
-				sm.leaderId = leaderId
-				if sm.saveState(term,leaderId)!=nil {
-					//Problem in saving state
-				}
-				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
-				success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
-				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
-				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
-			} else { //sender is out of date > replay false
-				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",false, "senderId",sm.id, "forIndex",prevLogIndex)
-				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
-			}
-		case FOLLOWER :
-			if term >= sm.currentTerm {
-//copy of above
-				sm.leaderId = leaderId
-				if sm.saveState(term,leaderId)!=nil {
-					//Problem in saving state
-				}
-				sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
-				success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
-				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
-				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
-			} else { //sender is out of date > replay false
-				event := CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",false, "senderId",sm.id, "forIndex",prevLogIndex)
-				sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
-			}
+func (sm *StateMachine) AppendEntriesReq(term uint64, leaderId uint64, prevLogIndex uint64, prevLogTerm uint64, entries LogEntry, leaderCommit uint64) {
+//Same for all states
+	var event Event
+	if term > sm.currentTerm || (sm.state == CANDIDATE && term == sm.currentTerm){
+		sm.state = FOLLOWER  
+		sm.leaderId = leaderId
+		if sm.saveState(term,leaderId)!=nil { //?
+			//Problem in saving state
+		}
 	}
+
+	if sm.state == LEADER  || sm.state == CANDIDATE{
+		event = CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",false, "senderId",sm.id, "forIndex",prevLogIndex)
+	} else {
+		sm.actionChan <- CreateAction("Alarm", "t",sm.electionTimeout)
+		success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries,leaderCommit)
+		event = CreateEvent("AppendEntriesResp", "term",sm.currentTerm, "success",success, "senderId",sm.id, "forIndex",prevLogIndex)
+	}
+	//If heartbeat message
+	if !entries.valid {
+		event.data["forIndex"]=0	
+	}
+	sm.actionChan <- CreateAction("Send", "peerId",sm.id, "event",event)
 }
 
-//-------------------------------------------------------------------
+
 func (sm *StateMachine) appendEntryHelper(prevLogIndex uint64, prevLogTerm uint64, entries LogEntry, leaderCommit uint64) (bool){
 	if uint64(len(sm.log)) > prevLogIndex && sm.log[prevLogIndex].term == prevLogTerm {
 		if entries.valid == false { //heartbeat message
@@ -396,11 +369,15 @@ func (sm *StateMachine) appendEntryHelper(prevLogIndex uint64, prevLogTerm uint6
 	return false	//else false
 }
 
+
 //-------------------------------------------------------------------
 func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId uint64, forIndex uint64) {
 	switch sm.state {
 		case LEADER :
 			if(success) && term==sm.currentTerm {
+				if forIndex == 0 { //if heartbeat reply
+					return
+				}
 				sm.nextIndex[sm.peerIndex[senderId]]++
 				ni := sm.nextIndex[sm.peerIndex[senderId]]
 				sm.matchIndex[sm.peerIndex[senderId]] = ni-1 //? ask
@@ -460,6 +437,7 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 				if sm.saveState(term,candidateId)!=nil {
 					//Problem in saving state
 				}
+				sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 				checkUpToDateAndVote()
 			} else {
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
@@ -472,6 +450,7 @@ func (sm *StateMachine) VoteReq(term uint64, candidateId uint64, lastLogIndex ui
 				if sm.saveState(term,candidateId)!=nil {
 					//Problem in saving state
 				}
+				sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 				checkUpToDateAndVote()
 			} else {
 				event := CreateEvent("VoteResp", "term",sm.currentTerm, "voteGranted",false)
@@ -517,20 +496,7 @@ func (sm *StateMachine) VoteResp(term uint64, voteGranted bool) {
 				sm.leaderId = 0
 				sm.actionChan <- CreateAction("Alarm","t",sm.electionTimeout)
 			}
-		default : 
+		//default : 
 			//Do nothing old message
 	}
 }
-
-/*
-	switch sm.state {
-		case LEADER :
-		case CANDIDATE : 
-		case FOLLOWER : 
-	}
-*/
-
-//misscall 59995
-//Term in vote resp
-
-

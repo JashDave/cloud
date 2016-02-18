@@ -2,46 +2,13 @@ package assignment2
 
 
 import (
-	"fmt"
 	"testing"
 	"time"
 	"reflect"
 )
 
 
-func DumpPkgManager(){
-	fmt.Println("Dump")
-	reflect.DeepEqual(1,1)
-	time.Sleep(1*time.Millisecond)
-}
-
 //----------------SUPPORTERS-----------
-func CopySM(src *StateMachine) (dest *StateMachine){		//Channels are not copied but flushed
-	dest = new(StateMachine)
-	*dest = *src	//copies all primitive data types
-	//For slices and maps
-	dest.peers = make([]uint64,len(src.peers))
-	copy(dest.peers,src.peers)
-
-	dest.log = make([]LogEntry,len(src.log))
-	copy(dest.log,src.log)
-
-	dest.nextIndex = make([]uint64,len(src.nextIndex))
-	copy(dest.nextIndex,src.nextIndex)
-
-	dest.matchIndex = make([]uint64,len(src.matchIndex))
-	copy(dest.matchIndex,src.matchIndex)
-
-	dest.peerIndex = make(map[uint64]int)
-	for k, v := range src.peerIndex {
-	    dest.peerIndex[k] = v
-	}
-	dest.actionChan = make(chan Action,1000)
-	dest.eventChan = make(chan Event,1000)
-	dest.processMutex = make(chan int,1)
-	dest.processMutex <- 1
-	return dest
-}
 
 func GetFollowerSM() (*StateMachine){
 	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(500)*time.Millisecond, time.Duration(200)*time.Millisecond, uint64(1), uint64(0), []LogEntry{LogEntry{0,0,nil,false}})
@@ -90,79 +57,6 @@ func CheckActions(t *testing.T,actionChan (chan Action),testname string,actions 
 		}
 	}
 }
-
-
-/*
-func GetAlarm() (Action){
-	return CreateAction("Alarm","t",time.Duration(500)*time.Millisecond)
-}
-*/
-
-
-//-------------------------------------
-
-//--------------------DRIVER----------------
-/*
-func PerformActions(sm *StateMachine) {
-	for {
-fmt.Println("Action:")
-		select {
-		case a := <- sm.actionChan :
-			fmt.Println(a)
-			switch a.name {
-				case "Append":
-			}
-
-		case <- time.After(2*time.Second):
-			break
-		}
-	}
-}
-*/
-//------------------END DRIVER--------------
-
-/*
-func checkEquals(t *testing.T,a,b interface{}) {
-	if !reflect.DeepEqual(a,b) {
-		t.Error("Mismatch :",a,b)
-	}
-}
-
-
-func TestInitialization(t *testing.T) {
-	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(500)*time.Millisecond, time.Duration(200)*time.Millisecond, uint64(1), uint64(0), []LogEntry{LogEntry{0,0,nil,false}})
-
-	checkEquals(t,sm.id,uint64(10))
-	checkEquals(t,sm.peers,[]uint64{20,30,40,50})
-	checkEquals(t,sm.majority,uint64(3))
-
-	sm.electionTimeout = electionTimeout
-	sm.heartbeatTimeout = heartbeatTimeout
-	//Persistent
-	sm.currentTerm = currentTerm
-	sm.votedFor = votedFor
-	sm.log = make([]LogEntry, len(log))
-	copy(sm.log, log)
-	//Volatile
-	sm.state = FOLLOWER
-	sm.leaderId = 0
-	sm.logIndex = uint64(len(sm.log))
-	sm.commitIndex = 0
-	sm.nextIndex = make([]uint64,len(sm.peers))
-	sm.matchIndex = make([]uint64,len(sm.peers))
-	sm.voteCount = 0
-	sm.peerIndex = make(map[uint64]int)
-	for i := range sm.peers {
-		sm.peerIndex[sm.peers[i]] = i
-	}
-	sm.stop = true
-	sm.actionChan = make(chan Action,1000)
-	sm.eventChan = make(chan Event,1000)
-	sm.processMutex = make(chan int,1)
-	sm.processMutex <- 1
-
-}
-*/
 
 
 //--------TestStartStop---------
@@ -423,6 +317,94 @@ func TestVoteReqWithHigherTermSentToAlreadyVotedFollower(t *testing.T) {
 	CheckActions(t,actionChan,"TestVoteReqWithHigherTermSentToAlreadyVotedFollower",[]string{"Send","SaveState"},[]int{1,2})
 }
 
+func TestVoteReqToLeaderWithHigherTerm(t *testing.T) {
+	sm := GetLeaderSM()
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	term := sm.currentTerm	//save term for later check
+	//Vote request with same term and longer log
+	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm+2, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm+1)
+	sm.processEvent()
+	//Must move to follower mode
+	if sm.state!=FOLLOWER {
+		t.Error("Invalid mode\n")
+	} 
+	//Current term must be updated
+	if sm.currentTerm!= term+2 {
+		t.Error("Mismatch in currentTerm\n")
+	}
+	//Cast vote and save votedFor
+	CheckActions(t,actionChan,"TestVoteReqToLeaderWithHigherTerm",[]string{"Send","SaveState","Alarm"},[]int{1,1,1})
+}
+
+
+func TestVoteReqToLeaderWithLesserTerm(t *testing.T) {
+	sm := GetLeaderSM()
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	term := sm.currentTerm	//save term for later check
+	//Vote request with same term and longer log
+	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm-1, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm-2)
+	sm.processEvent()
+	//Must retain leader mode
+	if sm.state!=LEADER {
+		t.Error("Invalid mode\n")
+	} 
+	//Current term must be same
+	if sm.currentTerm!= term {
+		t.Error("Mismatch in currentTerm\n")
+	}
+	//Send -ve resp
+	CheckActions(t,actionChan,"TestVoteReqToLeaderWithLesserTerm",[]string{"Send"},[]int{1})
+}
+
+
+
+func TestVoteReqToCandidateWithHigherTerm(t *testing.T) {
+	sm := GetCandidateSM()
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	term := sm.currentTerm	//save term for later check
+	//Vote request with same term and longer log
+	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm+2, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm+1)
+	sm.processEvent()
+	//Must move to follower mode
+	if sm.state!=FOLLOWER {
+		t.Error("Invalid mode\n")
+	} 
+	//Current term must be updated
+	if sm.currentTerm!= term+2 {
+		t.Error("Mismatch in currentTerm\n")
+	}
+	//Cast vote and save votedFor
+	CheckActions(t,actionChan,"TestVoteReqToLeaderWithHigherTerm",[]string{"Send","SaveState","Alarm"},[]int{1,1,1})
+}
+
+
+func TestVoteReqToCandidateWithLesserTerm(t *testing.T) {
+	sm := GetCandidateSM()
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	term := sm.currentTerm	//save term for later check
+	//Vote request with same term and longer log
+	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm-1, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm-2)
+	sm.processEvent()
+	//Must retain leader mode
+	if sm.state!=CANDIDATE {
+		t.Error("Invalid mode\n")
+	} 
+	//Current term must be same
+	if sm.currentTerm!= term {
+		t.Error("Mismatch in currentTerm\n")
+	}
+	//Send -ve resp
+	CheckActions(t,actionChan,"TestVoteReqToLeaderWithLesserTerm",[]string{"Send"},[]int{1})
+}
+
+
+
+
+
 func TestLeaderTimeout(t *testing.T){
 	sm := GetLeaderSM()
 	eventChan := *sm.GetEventChannel()
@@ -442,6 +424,44 @@ func TestLeaderTimeout(t *testing.T){
 	//Send heartbeats to all peers : number of peers
 	CheckActions(t,actionChan,"TestLeaderTimeout",[]string{"Alarm","Send"},[]int{1,len(sm.peers)})
 }
+
+
+
+
+func TestAppendToFollower(t *testing.T){
+	sm := GetFollowerSM()
+//Get channels
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+//save for later use
+	term := sm.currentTerm
+	logIndex := sm.logIndex
+	commitIndex := sm.commitIndex
+
+	eventChan <- CreateEvent("Append","data",[]byte{0,255,10,7,13,1,2},"uid",uint64(123))
+	sm.processEvent()
+	//Must retain leader state
+	if sm.state!=FOLLOWER {
+		t.Error("Invalid mode\n")
+	} 
+	//Must retain same term
+	if sm.currentTerm != term {
+		t.Error("Mismatch in currentTerm\n")
+	}
+	//Logindex check
+	if sm.logIndex != logIndex {
+		t.Error("Invalid log index\n")
+	} 
+	//Commit index check
+	if sm.commitIndex != commitIndex {
+		t.Error("Invalid commit index\n")
+	} 
+
+	//Redirect
+	CheckActions(t,actionChan,"TestAppendWithSameUid",[]string{"Redirect"},[]int{1})
+}
+
+
 
 
 func TestAppendToLeader(t *testing.T){
@@ -612,6 +632,54 @@ func TestPossitiveAppendEntriesResp(t *testing.T){
 	CheckActions(t,actionChan,"PossitiveAppendEntriesResp 2",[]string{"Commit"},[]int{1})
 }
 
+
+func TestHeartbeatResp(t *testing.T){
+	sm := GetLeaderSM()
+	//Get channels
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	term := sm.currentTerm
+	eventChan <- CreateEvent("AppendEntriesResp","term",sm.currentTerm, "success",true, "senderId",sm.peers[0], "forIndex", uint64(0))
+	sm.processEvent()
+	if sm.state!=LEADER {
+		t.Error("Invalid mode\n")
+	} 
+	//Must retain same term
+	if sm.currentTerm != term {
+		t.Error("Mismatch in currentTerm\n")
+	}
+	//Do nothing
+	CheckActions(t,actionChan,"TestHeartbeatResp",[]string{},[]int{})
+}
+
+
+func TestBackingFollowerPositiveAppendEntriesResp(t *testing.T){
+	sm := GetLeaderSM()
+//Setup Leader
+	sm.log = append(sm.log,LogEntry{sm.currentTerm,123,[]byte{0,255,10,7,13,1,2},true},LogEntry{sm.currentTerm,124,[]byte{0,255,10,7,13,1,2},true})
+	sm.logIndex+=2
+	sm.nextIndex[0] = sm.logIndex-2
+//Get channels
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+//save for later use
+	commitIndex := sm.commitIndex
+	
+	eventChan <- CreateEvent("AppendEntriesResp","term",sm.currentTerm, "success",true, "senderId",sm.peers[0], "forIndex", sm.logIndex-1)
+	sm.processEvent()
+
+	//Commit index must be same
+	if sm.commitIndex != commitIndex {
+		t.Error("Invalid commit index\n")
+	}
+	//Next index of peer[0] must be incremented and leader must send next log entry
+	if(sm.nextIndex[0] != sm.logIndex-1) {
+			t.Error("Next index mismatch\n")
+	} 
+	CheckActions(t,actionChan,"TestBackingFollowerPositiveAppendEntriesResp",[]string{"Send"},[]int{1})
+}
+
+
 func TestBackingFollowerNegativeAppendEntriesResp(t *testing.T){
 	sm := GetLeaderSM()
 //Setup Leader
@@ -667,194 +735,143 @@ func TestNegativeAppendEntriesRespWithHigherTerm(t *testing.T){
 	CheckActions(t,actionChan,"TestNegativeAppendEntriesRespWithHigherTerm",[]string{"Alarm","SaveState"},[]int{1,1})
 }
 
-/*
-func TestFollowerVoteReq(t *testing.T) {
-	sm := GetFollower
+func TestAppendEntriesReqToLeaderWithHigherTerm(t *testing.T) {
+	sm := GetLeaderSM()
+//Get channels
 	eventChan := *sm.GetEventChannel()
 	actionChan := *sm.GetActionChannel()
+//save for later use
 	term := sm.currentTerm
-	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm-1)
-	time.Sleep(2*time.Millisecond) //wait for events to get processed
-	//Go to follower mode and vote
-	if sm.state!=FOLLOWER {
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm+2, "leaderId", sm.peers[0], "prevLogIndex", uint64(0), "prevLogTerm", sm.log[0].term, "entries", LogEntry{0,0,[]byte{},false}, "leaderCommit", uint64(1))
+	sm.processEvent()
+	//Must change to follower state
+	if sm.state != FOLLOWER {
 		t.Error("Invalid mode\n")
 	} 
-	//Current term must remain same
-	if sm.currentTerm!= term {
+	//Must update term
+	if sm.currentTerm != term+2 {
 		t.Error("Mismatch in currentTerm\n")
 	}
-	c1,c2,c3:=0,0,0
-	loop:
-	for {
-		select {
-		case a := <- actionChan :
-			//fmt.Println(a)
-			if a.name=="Alarm" {
-				c1++
-			} else if a.name=="SaveVotedFor"{
-				c2++
-			} else if a.name=="Send"{
-				c3++
-			} else {
-				t.Error("Invalid Action\n")
-			}
-		case <- time.After(100*time.Millisecond):
-			break loop
-		}
-	}
-	if c1!=1 { //One due to sm.Start() 
-		t.Error("Alarm count Mismatch\n")
-	}
-	if c2!=1 { //Save votedFor
-		t.Error("Problem saving votedFor\n")
-	}
-	if c3!=1 { //Send vote resp
-		t.Error("Send VoteResp count Mismatch\n")
-	}
-	//imageXX = CopySM(sm)
-	sm.Stop()
-
-	//Try same again with higher term
-	sm = CopySM(image2)		//SM candidate in backoff mode
-	sm.Start()
-	eventChan = *sm.GetEventChannel()
-	actionChan = *sm.GetActionChannel()
-	term = sm.currentTerm
-	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm+2, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm-1)
-	time.Sleep(2*time.Millisecond) //wait for events to get processed
-	//Go to follower mode and vote for
-	if sm.state!=FOLLOWER {
-		t.Error("Invalid mode\n")
-	} 
-	//Current term must be updated and saved
-	if sm.currentTerm!= term+2 {
+	//Must reset voted for
+	if sm.votedFor != sm.peers[0] {
 		t.Error("Mismatch in currentTerm\n")
-	}
-	c1,c2,c3,c4 := 0,0,0,0
-	loop2:
-	for {
-		select {
-		case a := <- actionChan :
-			//fmt.Println(a)
-			if a.name=="Alarm" {
-				c1++
-			} else if a.name=="SaveVotedFor"{
-				c2++
-			} else if a.name=="SaveCurrentTerm"{
-				c4++
-			} else if a.name=="Send"{
-				c3++
-			} else {
-				t.Error("Invalid Action\n")
-			}
-		case <- time.After(100*time.Millisecond):
-			break loop2
-		}
-	}
-	if c1!=1 { //One due to sm.Start() 
-		t.Error("Alarm count Mismatch\n")
-	}
-	if c2!=2 { //Reset + Save voted for 
-		t.Error("Problem saving votedFor\n")
-	}
-	if c3!=1 { //send vote resp
-		t.Error("Send VoteResp count Mismatch\n")
-	}
-	if c4!=1 { //Save current term
-		t.Error("Problem saving current term\n")
-	}
-	//imageXX = CopySM(sm)
-	sm.Stop()
+	}	
 
-
-	//Try same again with lower term
-sm = CopySM(image2)		//SM candidate in backoff mode
-	sm.Start()
-	eventChan = *sm.GetEventChannel()
-	actionChan = *sm.GetActionChannel()
-	term = sm.currentTerm
-	eventChan <- CreateEvent("VoteReq", "term",sm.currentTerm-1, "candidateId",uint64(50), "lastLogIndex",sm.logIndex+1, "lastLogTerm",sm.currentTerm-1)
-	time.Sleep(2*time.Millisecond) //wait for events to get processed
-	//No change in Current term
-	if sm.currentTerm!= term {
-		t.Error("Mismatch in currentTerm\n")
-	}
-	c1,c2 = 0,0
-	loop3:
-	for {
-		select {
-		case a := <- actionChan :
-			//fmt.Println(a)
-			if a.name=="Alarm" {
-				c1++
-			} else if a.name=="Send"{
-				c2++
-			} else {
-				t.Error("Invalid Action\n")
-			}
-		case <- time.After(100*time.Millisecond):
-			break loop3
-		}
-	}
-	if c1!=1 { //One due to sm.Start() 
-		t.Error("Alarm count Mismatch\n")
-	}
-	if c2!=1 { //send negative vote resp
-		t.Error("Send VoteResp count Mismatch\n")
-	}
-	//imageXX = CopySM(sm)
-	sm.Stop()
+	CheckActions(t,actionChan,"TestAppendEntriesReqToLeaderWithHigherTerm",[]string{"Alarm","SaveState","Send"},[]int{1,1,1})
 }
-*/
 
-/* //---------------------Depricated------------------
-func TestCandidateBackoffTimeout(t *testing.T) {
-	sm = CopySM(image2)		//SM candidate in backoff mode
-	sm.Start()
+func TestAppendEntriesReqToFollower(t *testing.T) {
+	sm := GetFollowerSM()
+	sm.log = append(sm.log,LogEntry{1,1,[]byte{1,2,3},true})
+//Get channels
 	eventChan := *sm.GetEventChannel()
 	actionChan := *sm.GetActionChannel()
+//save for later use
 	term := sm.currentTerm
-	eventChan <- CreateEvent("Timeout")
-	time.Sleep(2*time.Millisecond) //wait for events to get processed
-	//Restart election
-	if sm.state!=CANDIDATE {
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm+2, "leaderId", sm.peers[0], "prevLogIndex", uint64(0), "prevLogTerm", sm.log[0].term, "entries", LogEntry{0,0,[]byte{},true}, "leaderCommit", uint64(1))
+	sm.processEvent()
+	//Must remain in follower state
+	if sm.state != FOLLOWER {
 		t.Error("Invalid mode\n")
 	} 
-	//Current term must be incremented and saved
-	if sm.currentTerm!= term+1 {
+	//Must update term
+	if sm.currentTerm != term+2 {
 		t.Error("Mismatch in currentTerm\n")
 	}
-	//ask for votes and set election timeout
-	c1,c2,c3:=0,0,0
-	loop:
-	for {
-		select {
-		case a := <- actionChan :
-			//fmt.Println(a)
-			if a.name=="Alarm" {
-				c1++
-			} else if a.name=="SaveState"{
-				c2++
-			} else if a.name=="Send"{
-				c3++
-			} else {
-				t.Error("Invalid Action\n")
-			}
-		case <- time.After(100*time.Millisecond):
-			break loop
-		}
-	}
-	if c1!=2 { //One due to sm.Start() + Election timeout alarm
-		t.Error("Alarm count Mismatch\n")
-	}
-	if c2!=1 { //Save current term
-		t.Error("Problem saving current term\n")
-	}
-	if c3!=4 { //Request for vote in new term
-		t.Error("Send VoteReq count Mismatch\n")
-	}
-	//imageXX = CopySM(sm)
-	sm.Stop()
+	//Must reset voted for
+	if sm.votedFor != sm.peers[0] {
+		t.Error("Mismatch in currentTerm\n")
+	}	
+
+	CheckActions(t,actionChan,"TestAppendEntriesReqToFollower",[]string{"Alarm","SaveState","Send","LogStore"},[]int{1,1,1,1})
 }
-*/
+
+
+
+func TestAppendEntriesReqToFollowerWithHigherCommit(t *testing.T) {
+	sm := GetFollowerSM()
+	sm.log = append(sm.log,LogEntry{1,1,[]byte{1,2,3},true})
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	sm.commitIndex = uint64(0)
+	term := sm.currentTerm
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm, "leaderId", sm.peers[0], "prevLogIndex", uint64(0), "prevLogTerm", sm.log[0].term, "entries", LogEntry{0,0,[]byte{},true}, "leaderCommit", sm.logIndex+5)
+	sm.processEvent()
+	//Must change to follower state
+	if sm.state != FOLLOWER {
+		t.Error("Invalid mode\n")
+	} 
+	//Must update term
+	if sm.currentTerm != term {
+		t.Error("Mismatch in currentTerm\n")
+	}	
+	if sm.commitIndex != sm.logIndex {
+		t.Error("Commit index mismatch")
+	}
+
+	CheckActions(t,actionChan,"TestAppendEntriesReqToFollowerWithHigherCommit",[]string{"Alarm","Send","LogStore"},[]int{1,1,1})
+}
+
+func TestAppendEntriesReqToFollowerWithLargerPrevIndex(t *testing.T) {
+	sm := GetFollowerSM()
+	sm.log = append(sm.log,LogEntry{1,1,[]byte{1,2,3},true})
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+	sm.commitIndex = uint64(0)
+	term := sm.currentTerm
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm, "leaderId", sm.peers[0], "prevLogIndex", uint64(len(sm.log)+5), "prevLogTerm", sm.log[0].term, "entries", LogEntry{0,0,[]byte{},true}, "leaderCommit", sm.logIndex)
+	sm.processEvent()
+	//Must change to follower state
+	if sm.state != FOLLOWER {
+		t.Error("Invalid mode\n")
+	} 
+	//Must update term
+	if sm.currentTerm != term {
+		t.Error("Mismatch in currentTerm\n")
+	}	
+
+	CheckActions(t,actionChan,"TestAppendEntriesReqToFollowerWithLargerPrevIndex",[]string{"Alarm","Send"},[]int{1,1})
+}
+
+
+func TestAppendEntriesReqToLeaderWithLesserTerm(t *testing.T) {
+	sm := GetLeaderSM()
+//Get channels
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+//save for later use
+	term := sm.currentTerm
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm-1, "leaderId", sm.peers[0], "prevLogIndex", uint64(1), "prevLogTerm", sm.currentTerm, "entries", LogEntry{0,0,[]byte{},false}, "leaderCommit", uint64(1))
+	sm.processEvent()
+	//Must not change state
+	if sm.state != LEADER {
+		t.Error("Invalid mode\n")
+	} 
+	//Same term
+	if sm.currentTerm != term {
+		t.Error("Mismatch in currentTerm\n")
+	}	
+	CheckActions(t,actionChan,"TestAppendEntriesReqToLeaderWithLesserTerm",[]string{"Send"},[]int{1})
+}
+
+
+func TestAppendEntriesReqToCandidateWithLesserTerm(t *testing.T) {
+	sm := GetCandidateSM()
+//Get channels
+	eventChan := *sm.GetEventChannel()
+	actionChan := *sm.GetActionChannel()
+//save for later use
+	term := sm.currentTerm
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm-1, "leaderId", sm.peers[0], "prevLogIndex", uint64(1), "prevLogTerm", sm.currentTerm, "entries", LogEntry{0,0,[]byte{},false}, "leaderCommit", uint64(1))
+	sm.processEvent()
+	//Must not change state
+	if sm.state != CANDIDATE {
+		t.Error("Invalid mode\n")
+	} 
+	//Same term
+	if sm.currentTerm != term {
+		t.Error("Mismatch in currentTerm\n")
+	}	
+	CheckActions(t,actionChan,"TestAppendEntriesReqToCandidateWithLesserTerm",[]string{"Send"},[]int{1})
+}
 
