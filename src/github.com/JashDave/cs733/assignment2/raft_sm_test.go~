@@ -458,7 +458,7 @@ func TestAppendToFollower(t *testing.T){
 	} 
 
 	//Redirect
-	CheckActions(t,actionChan,"TestAppendWithSameUid",[]string{"Redirect"},[]int{1})
+	CheckActions(t,actionChan,"TestAppendToFollower",[]string{"Redirect"},[]int{1})
 }
 
 
@@ -495,7 +495,7 @@ func TestAppendToLeader(t *testing.T){
 	CheckActions(t,actionChan,"TestAppendToLeader",[]string{"Alarm","Send","LogStore"},[]int{1,len(sm.peers),1})
 }
 
-
+/*
 func TestAppendWithSameUid(t *testing.T){
 	sm := GetLeaderSM()
 //Setup Leader
@@ -568,7 +568,7 @@ func TestAppendWithAlreadyCommitedUid(t *testing.T){
 	//Replay old Commit with same data and index
 	CheckActions(t,actionChan,"TestAppendWithAlreadyCommitedUid",[]string{"Commit"},[]int{1})
 }
-
+*/
 
 func TestPossitiveAppendEntriesResp(t *testing.T){
 	sm := GetLeaderSM()
