@@ -1,0 +1,45 @@
+=============== Mar 19, 2016 (IST) ===============
+23:49:06.088877 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+23:49:06.089801 db@open opening
+23:49:06.092182 version@stat F·[] S·0B[] Sc·[]
+23:49:06.235046 db@janitor F·2 G·0
+23:49:06.235091 db@open done T·145.26616ms
+23:49:09.537232 transaction@flush created L0@2 N·2 S·272B "0,v1":"las..dex,v2"
+23:49:09.537294 version@stat F·[1] S·272B[272B] Sc·[0.25]
+23:49:12.281600 db@close closing
+23:49:12.281695 db@close done T·89.488µs
+=============== Mar 19, 2016 (IST) ===============
+23:49:13.490463 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+23:49:13.490729 version@stat F·[1] S·272B[272B] Sc·[0.25]
+23:49:13.490755 db@open opening
+23:49:13.490859 journal@recovery F·1
+23:49:13.491607 journal@recovery recovering @1
+23:49:13.493331 version@stat F·[1] S·272B[272B] Sc·[0.25]
+23:49:13.496607 db@janitor F·3 G·0
+23:49:13.496663 db@open done T·5.891359ms
+23:49:17.134583 transaction@flush created L0@5 N·2 S·277B "1,v3":"las..dex,v4"
+23:49:17.134658 version@stat F·[2] S·549B[549B] Sc·[0.50]
+23:49:19.809601 db@close closing
+23:49:19.820159 db@close done T·10.5436ms
+=============== Mar 19, 2016 (IST) ===============
+23:49:21.034573 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+23:49:21.034931 version@stat F·[2] S·549B[549B] Sc·[0.50]
+23:49:21.034963 db@open opening
+23:49:21.035086 journal@recovery F·1
+23:49:21.043054 journal@recovery recovering @3
+23:49:21.053206 version@stat F·[2] S·549B[549B] Sc·[0.50]
+23:49:21.053796 db@janitor F·4 G·0
+23:49:21.053848 db@open done T·18.867931ms
+23:49:27.898763 db@close closing
+23:49:27.898846 db@close done T·79.095µs
+=============== Mar 19, 2016 (IST) ===============
+23:49:29.130747 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+23:49:29.131015 version@stat F·[2] S·549B[549B] Sc·[0.50]
+23:49:29.131039 db@open opening
+23:49:29.131113 journal@recovery F·1
+23:49:29.132068 journal@recovery recovering @6
+23:49:29.133283 version@stat F·[2] S·549B[549B] Sc·[0.50]
+23:49:29.133684 db@janitor F·4 G·0
+23:49:29.133709 db@open done T·2.659971ms
+23:49:33.451117 db@close closing
+23:49:33.451198 db@close done T·77.654µs

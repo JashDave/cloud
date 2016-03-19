@@ -1,57 +1,232 @@
 package raftnode
 
 import (
-	"testing"
 	"fmt"
-	"time"
+	"github.com/cs733-iitb/cluster/mock"
+	"os"
 	"strconv"
+	"testing"
+	"time"
 )
 
-func GetNode(id uint64) (*RaftNode) {
-	nc := []NetConfig{{uint64(100), "localhost", uint16(5001)}, {uint64(200), "localhost", uint16(5002)}, {uint64(300), "localhost", uint16(5003)}, {uint64(400), "localhost", uint16(5004)}, {uint64(500), "localhost", uint16(5005)}}
-	conf := Config{nc, id, "log"+strconv.Itoa(int(id)), uint64(5000), uint64(1000)}
-	rn := CreateRaftNode(conf)
+const DIRNAME string = "TestLog"
+
+var ids []int = []int{100, 200, 300, 400, 500}
+var nc []NetConfig = []NetConfig{{uint64(ids[0]), "localhost", uint16(5001)},
+	{uint64(ids[1]), "localhost", uint16(5002)},
+	{uint64(ids[2]), "localhost", uint16(5003)},
+	{uint64(ids[3]), "localhost", uint16(5004)},
+	{uint64(ids[4]), "localhost", uint16(5005)}}
+
+const EleTimeout uint64 = 500
+const HBTimeout uint64 = 50
+
+
+func ImportHolder(){
+	fmt.Println("")
+}
+
+func GetNode(idx int,t *testing.T) *RaftNode {
+	conf := Config{nc, uint64(ids[idx]), DIRNAME + strconv.Itoa(int(ids[idx])), EleTimeout, HBTimeout}
+	rn,err := CreateRaftNode(conf)
+	if err!= nil {
+		t.Fatal("Error creating node.", err)
+	}
 	return rn
 }
 
+func MakeNodes(t *testing.T) ([]*RaftNode, *mock.MockCluster) {
+	cl, _ := mock.NewCluster(nil)
+	rafts := make([]*RaftNode, len(nc))
+	for i := 0; i < len(nc); i++ {
+		rafts[i] = GetNode(i,t)
+		rafts[i].server.Close() //Override with mock cluster
+		tmp, err := cl.AddServer(int(rafts[i].id))
+		if err != nil {
+			t.Fatal("Error creating nodes.", err)
+		}
+		rafts[i].server = tmp
+	}
+	return rafts, cl
+}
+
+func Start(rafts []*RaftNode) {
+	for i := 0; i < len(rafts); i++ {
+		rafts[i].Start()
+	}
+}
+
+func Stop(rafts []*RaftNode) {
+	for i := 0; i < len(rafts); i++ {
+		rafts[i].Shutdown()
+	}
+}
+
+func ClearAll() {
+	for i := 0; i < len(nc); i++ {
+		os.RemoveAll(DIRNAME + strconv.Itoa(int(ids[i])))
+	}
+}
+
+func GetMajorityLeader(rafts []*RaftNode) *RaftNode {
+	majority := int(len(rafts)/2) + 1
+	ldr_count := make([]int, len(rafts))
+	for _, e := range rafts {
+		ldr := e.LeaderId()
+		if ldr != 0 {
+			ldr_count[int(ldr/100)-1]++
+			if ldr_count[int(ldr/100)-1] >= majority {
+				return rafts[int(ldr/100)-1]
+			}
+		}
+	}
+	return nil
+}
+
+func WaitToGetLeader(rafts []*RaftNode, times int) *RaftNode {
+	ldr := GetMajorityLeader(rafts)
+	for i := 0; i < times && ldr == nil; i++ {
+		time.Sleep(time.Duration(EleTimeout) * time.Millisecond)
+		ldr = GetMajorityLeader(rafts)
+	}
+	return ldr
+}
 
 func TestInit(t *testing.T) {
-	rn := GetNode(100)
+	ClearAll()
+	rn := GetNode(0,t)
 	if rn == nil {
 		t.Error("Error creating Raft Node")
 	}
 	rn.Shutdown()
 }
 
+func TestCommit(t *testing.T) {
+	rn, _ := MakeNodes(t)
+	Start(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+
+	if ldr == nil {
+		t.Fatal("Error getting leader")
+	}
+	testdata := "1234567890"
+	ldr.Append([]byte(testdata))
+
+	time.Sleep(3 * time.Second)
+	for _, node := range rn {
+		select {
+		case ci := <- *node.GetCommitChannel():
+			if ci.Err != nil {
+				t.Fatal(ci.Err)
+			}
+			if string(ci.Data) != testdata {
+				t.Fatal("Got different data")
+			}
+			//Check Log also
+			commitIndex := node.CommittedIndex() 
+			err,data := node.Get(commitIndex)
+			if err!=nil {
+				t.Fatal("Not commited in log",err)
+			}
+			if string(data) != testdata {
+				t.Fatal("Got different data from log")
+			}
+		default:
+			t.Fatal("Expected message on all nodes")
+		}
+	}
+	Stop(rn)
+}
 
 
-func TestAll(t *testing.T) {
-	rn := make([]*RaftNode,5)
-	for i:=0;i<5;i++ {
-		rn[i] = GetNode(uint64(100*(i+1)))
-		if rn[i] == nil {
-			t.Error("Error creating Raft Node",i*100)
-		} else {
-			rn[i].Start()
+func TestMajorityPartition(t *testing.T) {
+	rn, ci := MakeNodes(t)
+	majority := int(len(rn)/2) + 1
+	ci.Partition(ids[:majority],ids[majority:])
+	Start(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+
+	if ldr == nil {
+		t.Fatal("Error getting leader in partition")
+	}
+	testdata := "!@#$%^&*()"
+	ldr.Append([]byte(testdata))
+
+	//Commit for all nodes in majority partition
+	time.Sleep(3 * time.Second)
+	for _, node := range rn[:majority] {
+		select {
+		case ci := <- *node.GetCommitChannel():
+			if ci.Err != nil {
+				t.Fatal(ci.Err)
+			}
+			if string(ci.Data) != testdata {
+				t.Fatal("Got different data")
+			}
+		default:
+			t.Fatal("Expected message on all nodes")
 		}
 	}
 
-	//Get Leader
-	L:= uint64(0)	
-for (L==0) {
-	time.Sleep(5*time.Second)
-L = rn[0].LeaderId()
-}
-
-	time.Sleep(2*time.Second)
-	
-	for i:=0;i<100;i++ {
-fmt.Println("I:",i)
-		//time.Sleep(1000000*time.Microsecond)
-		rn[int(L/100)-1].Append([]byte("12345"))
+	//No Commit for any nodes in minority partition
+	for _, node := range rn[majority:] {
+		select {
+		case ci := <- *node.GetCommitChannel():
+			if ci.Err == nil {
+				t.Fatal("Bad Commit")
+			}
+		default:
+		}
 	}
-
-
-	time.Sleep(100*time.Second)
+	Stop(rn)
 }
 
+
+
+func TestMinorityPartition(t *testing.T) {
+	rn, ci := MakeNodes(t)
+	majority := int(len(rn)/2) + 1
+	ci.Partition(ids[:majority-1],ids[majority-1:2*(majority-1)],ids[2*(majority-1):])
+	Start(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+
+	if ldr != nil {
+		t.Fatal("Error leader in minor partition")
+	}
+	Stop(rn)
+}
+
+func TestLeaderGetsPartitioned(t *testing.T) {
+	rn, cl := MakeNodes(t)
+	Start(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+	if ldr == nil {
+		t.Fatal("Error getting leader")
+	}
+	ldridx :=ldr.Id()
+	part := make([]int,len(rn)-1)
+	i :=0
+	for _,e := range rn {
+		if ldridx != e.Id() {
+			part[i] = int(e.Id())
+			i++
+		}
+	}
+	//Partition leader from others
+	cl.Partition(part,[]int{int(ldridx)})
+	//wait for others to timeout
+	time.Sleep(time.Duration(EleTimeout)*2 * time.Millisecond)
+	//Get new leader
+	ldr = WaitToGetLeader(rn, 10)
+	if ldr == nil {
+		t.Fatal("Error new getting leader in partition")
+	}
+	if ldr.Id() == ldridx {
+		t.Fatal("Bad(same) leader")
+	}
+	Stop(rn)
+}

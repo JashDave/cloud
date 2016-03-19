@@ -4,7 +4,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"errors"
-	"fmt"
+	//"fmt"
 	raftsm "github.com/JashDave/cs733/assignment3/assignment2"
 	"github.com/cs733-iitb/cluster"
 	"github.com/cs733-iitb/log"
@@ -95,7 +95,7 @@ func (rn *RaftNode) processAction() {
 			}
 			err = ioutil.WriteFile(rn.statefile, data, 0777)
 			if err != nil {
-				fmt.Println("File write errorr", err)
+				//fmt.Println("File write errorr", err)
 				//return nil,err//error
 			}
 		case "Alarm":
