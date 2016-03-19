@@ -511,7 +511,7 @@ func TestPossitiveAppendEntriesResp(t *testing.T){
 	commitIndex := sm.commitIndex
 
 //Positive responses one less than majority
-	for i := uint64(0);i < sm.majority-1; i++ {
+	for i := uint64(0);i < sm.majority-2; i++ {
 		eventChan <- CreateEvent("AppendEntriesResp","term",sm.currentTerm, "success",true, "senderId",sm.peers[i], "forIndex", sm.logIndex-1)
 		sm.processEvent()
 	}
@@ -520,13 +520,13 @@ func TestPossitiveAppendEntriesResp(t *testing.T){
 		t.Error("Invalid commit index\n")
 	}
 	//Next and match index must be updated for < majority peers
-	for i := uint64(0);i < sm.majority-1; i++  {
+	for i := uint64(0);i < sm.majority-2; i++  {
 		if(sm.nextIndex[i] != sm.logIndex || sm.matchIndex[i] != sm.logIndex-1) {
 			t.Error("Next or Match index mismatch for index",i)
 		}
 	} 
 	//Next and match must not be updated for >= majority peers
-	for i := sm.majority-1;i < uint64(len(sm.peers)); i++  {
+	for i := sm.majority-2;i < uint64(len(sm.peers)); i++  {
 		if(sm.nextIndex[i] != sm.logIndex-1 || sm.matchIndex[i] != sm.logIndex-2) {
 			t.Error("Next or Match index mismatch for index",i)
 		}
@@ -535,7 +535,7 @@ func TestPossitiveAppendEntriesResp(t *testing.T){
 	CheckActions(t,actionChan,"PossitiveAppendEntriesResp 1",[]string{},[]int{})
 
 	//Now majority +ve responses
-	eventChan <- CreateEvent("AppendEntriesResp","term",sm.currentTerm, "success",true, "senderId",sm.peers[sm.majority-1], "forIndex", sm.logIndex-1)
+	eventChan <- CreateEvent("AppendEntriesResp","term",sm.currentTerm, "success",true, "senderId",sm.peers[sm.majority-2], "forIndex", sm.logIndex-1)
 	sm.processEvent()
 
 	//Commit index must be incremented
@@ -543,13 +543,13 @@ func TestPossitiveAppendEntriesResp(t *testing.T){
 		t.Error("Invalid commit index\n")
 	}
 	//Next and match index must be updated for <= majority peers
-	for i := uint64(0);i < sm.majority; i++  {
+	for i := uint64(0);i < sm.majority-1; i++  {
 		if(sm.nextIndex[i] != sm.logIndex || sm.matchIndex[i] != sm.logIndex-1) {
-			t.Error("Next or Match index mismatch for index",i)
+			t.Error("Next or Match index mismatch for index",i,sm.nextIndex[i],sm.logIndex,sm.matchIndex[i])
 		}
 	} 
 	//Next and match must not be updated for > majority peers
-	for i := sm.majority;i < uint64(len(sm.peers)); i++  {
+	for i := sm.majority-1;i < uint64(len(sm.peers)); i++  {
 		if(sm.nextIndex[i] != sm.logIndex-1 || sm.matchIndex[i] != sm.logIndex-2) {
 			t.Error("Next or Match index mismatch for index",i)
 		}
@@ -667,7 +667,7 @@ func TestAppendEntriesReqToLeaderWithHigherTerm(t *testing.T) {
 	actionChan := *sm.GetActionChannel()
 //save for later use
 	term := sm.currentTerm
-	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm+2, "leaderId", sm.peers[0], "prevLogIndex", uint64(0), "prevLogTerm", sm.log[0].Term, "entries", LogEntry{0,[]byte{},false}, "leaderCommit", uint64(1))
+	eventChan <- CreateEvent("AppendEntriesReq","term", sm.currentTerm+2, "leaderId", sm.peers[0], "prevLogIndex", uint64(0), "prevLogTerm", sm.log[0].Term, "entries", LogEntry{0,[]byte{},false}, "leaderCommit", uint64(0))
 	sm.processEvent()
 	//Must change to follower state
 	if sm.state != FOLLOWER {
@@ -687,7 +687,7 @@ func TestAppendEntriesReqToLeaderWithHigherTerm(t *testing.T) {
 
 func TestAppendEntriesReqToFollower(t *testing.T) {
 	sm := GetFollowerSM()
-	sm.log = append(sm.log,LogEntry{1,1,[]byte{1,2,3},true})
+	sm.log = append(sm.log,LogEntry{1,[]byte{1,2,3},true})
 //Get channels
 	eventChan := *sm.GetEventChannel()
 	actionChan := *sm.GetActionChannel()

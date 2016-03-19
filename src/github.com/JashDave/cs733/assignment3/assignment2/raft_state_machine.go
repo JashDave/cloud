@@ -12,7 +12,7 @@
 package assignment2
 
 import (
-	//	"fmt"
+	//"fmt"
 	"errors"
 	"math/rand"
 	"time"
@@ -69,6 +69,8 @@ type StateMachine struct {
 	peerIndex    map[uint64]int
 	stop         bool
 	processMutex chan int
+
+	respno int
 }
 
 //------------------------Helper/Wrapper Functions-----------------------
@@ -99,6 +101,10 @@ func CreateAction(name string, params ...interface{}) Action {
 
 //--------------------Functions ment to be accessable by upper layer on StateMachine------------------
 
+func (sm *StateMachine) GetLeaderId() uint64 {
+	return sm.leaderId
+}
+
 func (sm *StateMachine) GetEventChannel() *(chan Event) {
 	return &sm.eventChan
 }
@@ -109,6 +115,7 @@ func (sm *StateMachine) GetActionChannel() *(chan Action) {
 
 func InitStateMachine(id uint64, peers []uint64, majority uint64, electionTimeout, heartbeatTimeout time.Duration, currentTerm, votedFor uint64, log []LogEntry) *StateMachine {
 	sm := new(StateMachine)
+	sm.respno = 0
 	//Init
 	sm.id = id
 	sm.peers = make([]uint64, len(peers))
@@ -186,7 +193,7 @@ func (sm *StateMachine) processEvents() {
 		sm.processEvent()
 	}
 	sm.processMutex <- 1
-	//fmt.Println("Stoped");
+	////fmt.Println("Stoped");
 }
 
 func (sm *StateMachine) processEvent() {
@@ -239,7 +246,6 @@ func (sm *StateMachine) Append(data []byte) {
 		sm.addToLog(entry, sm.logIndex)
 		//Reset heartbeat timeout
 		sm.actionChan <- CreateAction("Alarm", "t", sm.heartbeatTimeout)
-
 		//Send append entries to all
 		for _, p := range sm.peers {
 			event := CreateEvent("AppendEntriesReq", "term", sm.currentTerm, "leaderId", sm.id, "prevLogIndex", sm.logIndex-2, "prevLogTerm", sm.log[sm.logIndex-2].Term, "entries", entry, "leaderCommit", sm.commitIndex)
@@ -304,31 +310,40 @@ func (sm *StateMachine) AppendEntriesReq(term uint64, leaderId uint64, prevLogIn
 		if sm.saveState(term, leaderId) != nil { //?
 			//Problem in saving state
 		}
+	} else if sm.state == FOLLOWER && sm.currentTerm == term {
+		sm.leaderId = leaderId
 	}
-
 	if sm.state == LEADER || sm.state == CANDIDATE {
-		event = CreateEvent("AppendEntriesResp", "term", sm.currentTerm, "success", false, "senderId", sm.id, "forIndex", prevLogIndex)
+		event = CreateEvent("AppendEntriesResp", "term", sm.currentTerm, "success", false, "senderId", sm.id, "forIndex", prevLogIndex+1)
 	} else {
 		sm.actionChan <- CreateAction("Alarm", "t", sm.electionTimeout)
 		success := sm.appendEntryHelper(prevLogIndex, prevLogTerm, entries, leaderCommit)
-		event = CreateEvent("AppendEntriesResp", "term", sm.currentTerm, "success", success, "senderId", sm.id, "forIndex", prevLogIndex)
+		event = CreateEvent("AppendEntriesResp", "term", sm.currentTerm, "success", success, "senderId", sm.id, "forIndex", prevLogIndex+1)
 	}
 	//If heartbeat message
 	if !entries.Valid {
-		event.Data["forIndex"] = 0
+		event.Data["forIndex"] = uint64(0)
 	}
-	sm.actionChan <- CreateAction("Send", "peerId", sm.id, "event", event)
+	sm.actionChan <- CreateAction("Send", "peerId", sm.leaderId, "event", event)
 }
 
 func (sm *StateMachine) appendEntryHelper(prevLogIndex uint64, prevLogTerm uint64, entries LogEntry, leaderCommit uint64) bool {
 	if uint64(len(sm.log)) > prevLogIndex && sm.log[prevLogIndex].Term == prevLogTerm {
 		if entries.Valid == false { //heartbeat message
+			if leaderCommit > sm.commitIndex {
+				if sm.logIndex < leaderCommit {
+					sm.commitIndex = sm.logIndex - 1
+				} else {
+					sm.commitIndex = leaderCommit
+				}
+				sm.actionChan <- CreateAction("Commit", "index", sm.commitIndex, "data", sm.log[sm.commitIndex].Data, "err", nil)
+			}
 			return true
 		}
 		sm.addToLog(entries, prevLogIndex+1)
 		if leaderCommit > sm.commitIndex {
 			if sm.logIndex < leaderCommit {
-				sm.commitIndex = sm.logIndex-1
+				sm.commitIndex = sm.logIndex - 1
 			} else {
 				sm.commitIndex = leaderCommit
 			}
@@ -344,20 +359,31 @@ func (sm *StateMachine) AppendEntriesResp(term uint64, success bool, senderId ui
 	switch sm.state {
 	case LEADER:
 		if (success) && term == sm.currentTerm {
-			if forIndex == 0 { //if heartbeat reply
+			/*
+				if forIndex == 0 { //if heartbeat reply
+					return
+				}
+			*/
+			//fmt.Println("Sender",senderId,"Match Idx:",sm.matchIndex[sm.peerIndex[senderId]],"forIdx",forIndex)
+			if sm.matchIndex[sm.peerIndex[senderId]] >= forIndex {
 				return
 			}
+
 			sm.nextIndex[sm.peerIndex[senderId]]++
 			ni := sm.nextIndex[sm.peerIndex[senderId]]
 			sm.matchIndex[sm.peerIndex[senderId]] = ni - 1 //? ask
+
+			sm.respno++
+			//fmt.Println("DP#1","ID",sm.id,"NI",ni,"len",len(sm.log),"cmt idx",sm.commitIndex,"Resp No",sm.respno,"Sender",senderId,"FIdx",forIndex)
 			if ni-1 > sm.commitIndex {
-				matchcount := uint64(0)
+				matchcount := uint64(1) //Own
 				for i := range sm.matchIndex {
 					if sm.matchIndex[i] >= ni-1 {
 						matchcount++
 					}
 				}
 				if matchcount >= sm.majority {
+					//fmt.Println("DP#2","ID",sm.id,"NI",ni,"len",len(sm.log),sm.log)
 					sm.commitIndex = ni - 1
 					sm.actionChan <- CreateAction("Commit", "index", ni-1, "data", sm.log[ni-1].Data, "err", nil)
 				}
@@ -444,8 +470,9 @@ func (sm *StateMachine) VoteResp(term uint64, voteGranted bool) {
 			if sm.voteCount == sm.majority {
 				sm.state = LEADER
 				sm.leaderId = sm.id
+				//fmt.Println("#INIT NI:",sm.logIndex)
 				for i := range sm.nextIndex {
-					sm.nextIndex[i] = sm.logIndex + 1
+					sm.nextIndex[i] = sm.logIndex
 					sm.matchIndex[i] = 0
 				}
 				sm.actionChan <- CreateAction("Alarm", "t", sm.heartbeatTimeout)
