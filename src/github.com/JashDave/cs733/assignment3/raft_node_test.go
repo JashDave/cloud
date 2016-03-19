@@ -101,6 +101,7 @@ func TestInit(t *testing.T) {
 	rn.Shutdown()
 }
 
+
 func TestCommit(t *testing.T) {
 	rn, _ := MakeNodes(t)
 	Start(rn)
@@ -139,7 +140,7 @@ func TestCommit(t *testing.T) {
 	Stop(rn)
 }
 
-
+//If only majority of nodes are in partition then the partition must get its leader
 func TestMajorityPartition(t *testing.T) {
 	rn, ci := MakeNodes(t)
 	majority := int(len(rn)/2) + 1
@@ -184,7 +185,7 @@ func TestMajorityPartition(t *testing.T) {
 }
 
 
-
+//No leader must be there if all partitions are smaller than majority
 func TestMinorityPartition(t *testing.T) {
 	rn, ci := MakeNodes(t)
 	majority := int(len(rn)/2) + 1
@@ -199,6 +200,7 @@ func TestMinorityPartition(t *testing.T) {
 	Stop(rn)
 }
 
+//New leader must come up if old leader stops or gets partitioned
 func TestLeaderGetsPartitioned(t *testing.T) {
 	rn, cl := MakeNodes(t)
 	Start(rn)
@@ -228,5 +230,28 @@ func TestLeaderGetsPartitioned(t *testing.T) {
 	if ldr.Id() == ldridx {
 		t.Fatal("Bad(same) leader")
 	}
+	Stop(rn)
+}
+
+//Leader must get elected in healed partition
+func TestPartitionGetsHealed(t *testing.T) {
+	rn, ci := MakeNodes(t)
+	majority := int(len(rn)/2) + 1
+	ci.Partition(ids[:majority-1],ids[majority-1:2*(majority-1)],ids[2*(majority-1):])
+	Start(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+
+	if ldr != nil {
+		t.Fatal("Error leader in minor partition")
+	}
+
+	ci.Heal()
+	//Get Leader
+	ldr = WaitToGetLeader(rn, 10)
+	if ldr == nil {
+		t.Fatal("No leader in healed partition")
+	}
+
 	Stop(rn)
 }

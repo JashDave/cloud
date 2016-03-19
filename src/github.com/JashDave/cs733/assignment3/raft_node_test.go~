@@ -230,3 +230,26 @@ func TestLeaderGetsPartitioned(t *testing.T) {
 	}
 	Stop(rn)
 }
+
+
+func TestPartitionGetsHealed(t *testing.T) {
+	rn, ci := MakeNodes(t)
+	majority := int(len(rn)/2) + 1
+	ci.Partition(ids[:majority-1],ids[majority-1:2*(majority-1)],ids[2*(majority-1):])
+	Start(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+
+	if ldr != nil {
+		t.Fatal("Error leader in minor partition")
+	}
+
+	ci.Heal()
+	//Get Leader
+	ldr = WaitToGetLeader(rn, 10)
+	if ldr == nil {
+		t.Fatal("No leader in healed partition")
+	}
+
+	Stop(rn)
+}

@@ -13,8 +13,8 @@ github.com/JashDave/cs733/assignment3/raft_node.go:101.3,102.41 1 1
 github.com/JashDave/cs733/assignment3/raft_node.go:103.3,105.89 2 1
 github.com/JashDave/cs733/assignment3/raft_node.go:106.3,108.23 2 0
 github.com/JashDave/cs733/assignment3/raft_node.go:109.3,113.23 3 1
-github.com/JashDave/cs733/assignment3/raft_node.go:83.38,85.5 1 0
-github.com/JashDave/cs733/assignment3/raft_node.go:87.18,89.5 0 0
+github.com/JashDave/cs733/assignment3/raft_node.go:83.38,85.5 1 1
+github.com/JashDave/cs733/assignment3/raft_node.go:87.18,89.5 0 1
 github.com/JashDave/cs733/assignment3/raft_node.go:93.18,95.5 0 0
 github.com/JashDave/cs733/assignment3/raft_node.go:97.18,100.5 0 0
 github.com/JashDave/cs733/assignment3/raft_node.go:120.38,122.6 1 1
