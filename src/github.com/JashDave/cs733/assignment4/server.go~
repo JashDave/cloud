@@ -3,7 +3,7 @@ package fileserver
 import (
 	"bufio"
 	"fmt"
-	"github.com/cs733-iitb/cs733/assignment1/fs"
+	"github.com/JashDave/cs733/assignment4/fs"
 	raft "github.com/JashDave/cs733/assignment4/assignment3"
 	"net"
 	"os"

@@ -9,7 +9,7 @@ import (
 	"os"
 	"strconv"
 	"encoding/json"
-)gi
+)
 
 var crlf = []byte{'\r', '\n'}
 
@@ -28,7 +28,7 @@ type ClientMessage struct {
 
 func InitClientHandeler(rn *raft.RaftNode,fsys *fs.FileSystem) (*ClientHandeler) {
 	ch := ClientHandeler{}
-	fmt.Println("RN:", rn,"FS", fsys)
+	//fmt.Println("RN:", rn,"FS", fsys)
 	ch.rn = rn
 	ch.client_chans = make(map[uint64](chan *fs.Msg))
 	ch.commitChan = rn.GetCommitChannel()
@@ -139,7 +139,7 @@ func StartServer(socket string, conf raft.Config) {
 	uid_counter := uint64(1)
 	fsys := fs.GetFileSystem(1000)
 	ch := InitClientHandeler(rn,fsys)
-	fmt.Println(ch)
+	//fmt.Println(ch)
 	go ch.processCommits()
 	
 
