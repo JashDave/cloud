@@ -10,6 +10,11 @@ import (
 )
 
 
+const (
+	ELECTION_TIMEOUT  = 1000 * time.Millisecond
+	HEARTBEAT_TIMEOUT = 50 * time.Millisecond
+)
+
 //----------------SUPPORTERS-----------
 
 func GetLog(dir string) *log.Log {
@@ -27,20 +32,26 @@ fmt.Println("Error greating log :",err)
 }
 
 func GetFollowerSM()(*StateMachine){
-	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(500)*time.Millisecond, time.Duration(200)*time.Millisecond, uint64(1), uint64(0), GetLog("FollowerLog"))
+	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(ELECTION_TIMEOUT)*time.Millisecond, time.Duration(HEARTBEAT_TIMEOUT)*time.Millisecond, uint64(1), uint64(0), GetLog("FollowerLog"))
 	return sm
 }
 
 func GetCandidateSM()(*StateMachine){
-	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(500)*time.Millisecond, time.Duration(200)*time.Millisecond, uint64(2), uint64(10), GetLog("CandidateLog"))
+	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(ELECTION_TIMEOUT)*time.Millisecond, time.Duration(HEARTBEAT_TIMEOUT)*time.Millisecond, uint64(2), uint64(10), GetLog("CandidateLog"))
 	sm.state = CANDIDATE
 	return sm
 }
 
 
 func GetLeaderSM()(*StateMachine){
-	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(500)*time.Millisecond, time.Duration(200)*time.Millisecond, uint64(2), uint64(10), GetLog("LeaderLog"))
+	sm := InitStateMachine(uint64(10), []uint64{20,30,40,50}, uint64(3), time.Duration(ELECTION_TIMEOUT)*time.Millisecond, time.Duration(HEARTBEAT_TIMEOUT)*time.Millisecond, uint64(2), uint64(10), GetLog("LeaderLog"))
 	sm.state = LEADER
+
+	for i := range sm.nextIndex {
+		sm.nextIndex[i] = sm.logIndex
+		sm.matchIndex[i] = 0
+	}
+
 	return sm
 }
 
@@ -144,7 +155,7 @@ func TestStartStop(t *testing.T) {
 
 	sm.Start()
 	//check for Alarm action at start()
-	ta := CreateAction("Alarm","t",time.Duration(500)*time.Millisecond)	//test action
+	ta := CreateAction("Alarm","t",time.Duration(ELECTION_TIMEOUT)*time.Millisecond)	//test action
 	a,ok := <- sm.alarmChan
 	if !ok || !reflect.DeepEqual(a,ta) {
 		t.Error("No alarm event at start\n")
@@ -487,6 +498,7 @@ func TestAppendToLeader(t *testing.T){
 	term := sm.currentTerm
 	logIndex := sm.logIndex
 	commitIndex := sm.commitIndex
+
 	sm.requestChan <- CreateEvent("Append","data",[]byte{})
 	sm.processEvent()
 	//Must retain leader state

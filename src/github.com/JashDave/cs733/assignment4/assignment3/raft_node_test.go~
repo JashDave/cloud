@@ -18,7 +18,7 @@ var nc []NetConfig = []NetConfig{{uint64(ids[0]), "localhost", uint16(5001)},
 	{uint64(ids[3]), "localhost", uint16(5004)},
 	{uint64(ids[4]), "localhost", uint16(5005)}}
 
-const EleTimeout uint64 = 10000
+const EleTimeout uint64 = 5000
 const HBTimeout uint64 = 2000
 
 
@@ -91,6 +91,64 @@ func WaitToGetLeader(rafts []*RaftNode, times int) *RaftNode {
 	}
 	return ldr
 }
+
+
+
+
+
+func TestMultipleAppend(t *testing.T) {
+	ClearAll()
+	rn, _ := MakeNodes(t)
+	Start(rn)
+	defer Stop(rn)
+	//Get Leader
+	ldr := WaitToGetLeader(rn, 10)
+
+	if ldr == nil {
+		t.Fatal("Error getting leader")
+	}
+
+	times := 1000
+
+	for i:=0;i<times;i++ {
+		ldr.Append([]byte(strconv.Itoa(i)))
+	}
+
+	for i:=0; i<2*times &&  int(ldr.CommittedIndex()) < (times-1); i++ {
+for _,node := range rn {
+		fmt.Println("i:",i,"NodeID:",node.id,"CmtIdx:",node.CommittedIndex(),"LastLogIdx",node.rnlog.GetLastIndex(),"Leader:",node.LeaderId())
+}
+		select {
+		case ci := <- *ldr.GetCommitChannel():
+			fmt.Println("CI",ci)
+			if ci.Err != nil {
+				t.Fatal(ci.Err)
+			}
+		default:
+		}
+		time.Sleep(time.Millisecond * 1000)
+	}
+
+	time.Sleep(time.Millisecond * 2000)
+
+	for _,ldr = range rn {
+	fmt.Println("NODE ID :",ldr.Id(),"LastLogIndex",ldr.rnlog.GetLastIndex())
+		for i:=uint64(0);i<=ldr.CommittedIndex() ;i++ {
+			err,data := ldr.Get(i)
+			fmt.Println("i:",i,"Data:",string(data))
+			if err!=nil {
+				t.Fatal("Not commited in log:",err)
+			}
+		}
+	}
+}
+
+
+
+
+
+
+
 /*
 func TestInit(t *testing.T) {
 	ClearAll()
@@ -255,55 +313,6 @@ func TestPartitionGetsHealed(t *testing.T) {
 	}
 }
 */
-
-
-func TestMultipleAppend(t *testing.T) {
-	ClearAll()
-	rn, _ := MakeNodes(t)
-	Start(rn)
-	defer Stop(rn)
-	//Get Leader
-	ldr := WaitToGetLeader(rn, 10)
-
-	if ldr == nil {
-		t.Fatal("Error getting leader")
-	}
-
-	times := 200
-
-	for i:=0;i<times;i++ {
-		ldr.Append([]byte(strconv.Itoa(i)))
-	}
-
-	for i:=0; i<2*times &&  int(ldr.CommittedIndex()) < (times-1); i++ {
-for _,node := range rn {
-		fmt.Println("i:",i,"NodeID:",node.id,"CmtIdx:",node.CommittedIndex(),"LastLogIdx",node.rnlog.GetLastIndex(),"Leader:",node.LeaderId())
-}
-		select {
-		case ci := <- *ldr.GetCommitChannel():
-			fmt.Println("CI",ci)
-			if ci.Err != nil {
-				t.Fatal(ci.Err)
-			}
-		default:
-		}
-		time.Sleep(time.Millisecond * 1000)
-	}
-
-
-		time.Sleep(time.Millisecond * 5000)
-
-	for _,ldr = range rn {
-	fmt.Println("NODE ID :",ldr.Id(),"LastLogIndex",ldr.rnlog.GetLastIndex())
-		for i:=uint64(0);i<=ldr.CommittedIndex() ;i++ {
-			err,data := ldr.Get(i)
-			fmt.Println("i:",i,"Data:",string(data))
-			if err!=nil {
-				t.Fatal("Not commited in log:",err)
-			}
-		}
-	}
-}
 
 
 /*

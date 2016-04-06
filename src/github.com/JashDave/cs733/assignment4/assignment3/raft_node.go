@@ -69,6 +69,8 @@ type RaftNode struct {
 	smTimeoutChan    chan raftsm.Event
 	smResponseChan    chan raftsm.Event
 	smRequestChan    chan raftsm.Event
+
+	stopChan    chan int
 }
 
 func (rn *RaftNode) processInboxEvent() {
@@ -93,6 +95,11 @@ func (rn *RaftNode) processInboxEvent() {
 
 func (rn *RaftNode) processInboxEvents() {
 	for {
+		  select {
+		  case <- rn.stopChan:
+		      return
+		  default:
+		  }
 		rn.processInboxEvent()
 	}
 }
@@ -171,6 +178,11 @@ func (rn *RaftNode) processAction() {
 func (rn *RaftNode) processActions() {
 	//? Stop using process channel
 	for {
+		  select {
+		  case <- rn.stopChan:
+		      return
+		  default:
+		  }
 		rn.processAction()
 	}
 }
@@ -265,6 +277,7 @@ func CreateRaftNode(conf Config) (*RaftNode, error) {
 
 
 	rn.commitChan = make(chan CommitInfo, 1000)
+	rn.stopChan = make(chan int, 2)
 
 	rn.timer = time.AfterFunc(100000*time.Second, func() {
 //fmt.Println(rn.id,": timeout at:",time.Now())
@@ -304,6 +317,8 @@ func (rn *RaftNode) LeaderId() uint64 {
 }
 
 func (rn *RaftNode) Shutdown() {
+	rn.stopChan<-1
+	rn.stopChan<-2
 	rn.sm.Stop()
 	rn.server.Close()
 	rn.rnlog.Close()
