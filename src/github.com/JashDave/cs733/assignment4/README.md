@@ -1,4 +1,6 @@
 #Yet to be made
+
+#Few Notes
 rpc_test.go test cases takes about 350s to run on my computer
 
 I have changed nclients value form 500 to 50 in `TestRPC_ConcurrentWrites()` since it was taking too much time.
@@ -10,4 +12,6 @@ Also I have changed `TestRPC_ConcurrentCas(t *testing.T)`
 	if !(m.Kind == 'C' && strings.HasSuffix(string(m.Contents), " 1")) {
 ```
 
-
+#Thank Note
+File system and Server code are taken form "github.com/cs733-iitb/cs733/assignment1" and edited by me.
+Thank you Sriram Sir.
